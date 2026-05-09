@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    container_name: stellantis-api
+    ports:
+      - "8000:8000"
+    env_file: .env
+    environment:
+      - LANGCHAIN_TRACING_V2=${LANGCHAIN_TRACING_V2:-false}
+      - LANGCHAIN_PROJECT=stellantis-supply-chain
+    volumes:
+      - ./data:/app/data
+      - ./audit:/app/audit
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  streamlit:
+    build: .
+    container_name: stellantis-ui
+    ports:
+      - "8501:8501"
+    env_file: .env
+    environment:
+      - API_BASE=http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    command: streamlit run ui/dashboard.py --server.port 8501 --server.address 0.0.0.0
+
+volumes:
+  data:
+  audit:

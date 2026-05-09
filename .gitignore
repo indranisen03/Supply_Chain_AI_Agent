@@ -1,0 +1,52 @@
+# Environment
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+env/
+
+# Data (large files / sensitive)
+data/kaggle/*.csv
+data/docs/*.pdf
+data/faiss_index*/
+
+# FAISS index
+*.faiss
+*.pkl
+
+# Audit trail (generated at runtime)
+audit/audit_trail.jsonl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Evals output
+evals/last_eval_result.json
+
+# Logs
+*.log
+
+# LangSmith cache
+.langsmith/
+venv/
+*.pyc
+data/kaggle/*.csv
+data/kaggle/tokenized_access_logs.csv
+data/kaggle/DescriptionDataCoSupplyChain.csv
