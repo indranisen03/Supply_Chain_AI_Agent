@@ -13,10 +13,10 @@ A multi-agent supply chain AI procurement recommendation system with tiered HITL
 ---
 ## Objective
 **Situation**: 
-Automotive supply chains lose significant production time to reactive procurement meaning orders placed after stockout risk is already critical, with no auditable reasoning trail.
+Automotive supply chains lose millions in production downtime from reactive procurement — orders placed after stockout risk is already critical, with no auditable reasoning trail.
 
 **Task**: 
-Idea is to build a working AI system that monitors SKU inventory across warehouses, surfaces purchase order recommendations before risk materializes, and routes decisions through a tiered                human in the loop approval gate with a full audit trail.
+Idea is to build a working AI system that monitors SKU inventory across warehouses, surfaces purchase order recommendations before risk materializes, and routes decisions through a tiered                human in the loop(HITL) approval gate with a full audit trail.
 
 **Action**: 
 Designed and built a 6-agent LangGraph pipeline with hybrid RAG grounded in real Stellantis procurement documents, a tiered HITL gate (AUTO / SOFT / HARD), an independent Claude judge for                blind validation, and a two-page Streamlit dashboard — all within a SOC2-compliant JSONL audit trail.
