@@ -80,7 +80,7 @@ Every decision routes through a tiered approval gate — orders under $10k auto-
 │  └────────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────┘
 
-RAG:           FAISS + BM25 EnsembleRetriever (weights 0.4 / 0.6)
+RAG:           BM25 EnsembleRetriever (weights 0.4 / 0.6)
                Stellantis Code of Conduct, Purchasing Guidelines, FAR Part 12
 Observability: LangSmith tracing (opt-in via LANGCHAIN_TRACING_V2=true)
 Self-healing:  Each agent wrapped in retry logic with LLM debug reasoning
@@ -113,7 +113,7 @@ A two-page Streamlit app gives procurement teams full visibility into every run.
 |---|---|
 | Orchestration | LangGraph 0.2 — StateGraph, MemorySaver, interrupt/resume |
 | LLMs | Claude Haiku 4.5 (Agents 1–3, 6) · Claude Sonnet 4.6 (Agent 4) · Claude Sonnet 4.5 (Judge) |
-| RAG | FAISS vector store + BM25 EnsembleRetriever |
+| RAG | BM25 EnsembleRetriever |
 | Structured output | Pydantic v2 models for PO and judge output |
 | UI | Streamlit 1.45 — live streaming via `st.empty()`, JS button styling |
 | API | FastAPI — run, resume, status, and audit endpoints |
