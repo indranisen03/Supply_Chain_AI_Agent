@@ -37,6 +37,9 @@ audit/audit_trail.jsonl
 .DS_Store
 Thumbs.db
 
+# Local screenshots
+Screenshots/
+
 # Evals output
 evals/last_eval_result.json
 

@@ -10,14 +10,21 @@ Model: GPT-4o-mini (simple task, save cost).
 import json
 import time
 import logging
+from datetime import datetime
 from typing import Any, Dict
 
+
+def _fmt_date(iso: str) -> str:
+    try:
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%m-%d-%Y")
+    except Exception:
+        return iso
+
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from agents._llm import get_llm, token_cost
 
 from agents.state import SupplyChainState
 from audit.soc2_logger import log_agent_complete
-from config import MODEL_MINI, OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +68,7 @@ Decision window: {state.get('decision_window_days', 'N/A')} days until stockout 
 
 PO Recommendation:
   Quantity: {po.get('quantity', 'N/A')} units | Supplier: {po.get('supplier_id', 'N/A')}
-  Required by: {po.get('required_by', 'N/A')} | Value: ${po.get('estimated_value', 0):,.2f}
+  Required by: {_fmt_date(po.get('required_by', 'N/A'))} | Value: ${po.get('estimated_value', 0):,.2f}
   Confidence: {po.get('confidence', 0):.1%}
 
 HITL Tier: {state.get('hitl_tier', 'N/A')} | Human approved: {state.get('human_approved', False)}
@@ -71,7 +78,7 @@ Judge flags: {state.get('judge_flags', [])}
 Write the executive summary now.
 """
 
-    llm = ChatOpenAI(model=MODEL_MINI, api_key=OPENAI_API_KEY, temperature=0.3, max_tokens=300)
+    llm = get_llm("mini", temperature=0.3, max_tokens=300)
     messages = [SystemMessage(content=_SYSTEM_PROMPT), HumanMessage(content=user_msg)]
 
     try:
@@ -93,7 +100,7 @@ Write the executive summary now.
 
     decision_trail.append(f"Executive summary generated.")
 
-    cost_usd = (tokens / 1_000_000) * 0.60
+    cost_usd = token_cost(tokens, "mini")
     eval_metrics["summarizer"] = {"latency_ms": int((time.time() - t0) * 1000), "tokens": tokens, "cost_usd": cost_usd}
 
     log_agent_complete(run_id, "SUMMARIZER", {"summary": summary[:200]}, cost_usd=cost_usd, tokens=tokens)

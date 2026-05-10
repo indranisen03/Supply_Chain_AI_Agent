@@ -31,12 +31,15 @@ for d in [DATA_DIR, KAGGLE_DIR, DOCS_DIR, AUDIT_DIR, FAISS_INDEX_PATH.parent]:
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
-# GPT-4o-mini: Sensing, Historical Trend, Simulation, Summarizer (cost-efficient)
-MODEL_MINI = "gpt-4o-mini"
-# GPT-4o: Optimization (complex reasoning)
-MODEL_LARGE = "gpt-4o"
-# Claude claude-sonnet-4-20250514: Validation Judge (independent second opinion)
-MODEL_JUDGE = "claude-sonnet-4-5"
+# All agents use Claude when no OpenAI key is configured.
+# Claude Haiku 4.5 → Sensing, Historical Trend, Simulation, Summarizer (fast + cheap)
+# Claude Sonnet 4.6 → Optimization (strongest reasoning)
+# Claude Sonnet 4.5 → Validation Judge (independent second opinion, different version)
+_USE_CLAUDE_ONLY = not OPENAI_API_KEY or OPENAI_API_KEY in ("none", "sk-...")
+
+MODEL_MINI  = "claude-haiku-4-5-20251001" if _USE_CLAUDE_ONLY else "gpt-4o-mini"
+MODEL_LARGE = "claude-sonnet-4-6"         if _USE_CLAUDE_ONLY else "gpt-4o"
+MODEL_JUDGE = "claude-sonnet-4-5"   # always Claude — independent second opinion
 
 # ── LangSmith ──────────────────────────────────────────────────────────────────
 LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"

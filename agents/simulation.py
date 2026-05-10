@@ -12,11 +12,10 @@ import logging
 from typing import Any, Dict
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from agents._llm import get_llm, token_cost
 
 from agents.state import SupplyChainState
 from audit.soc2_logger import log_agent_complete, log_tool_call, log_verification
-from config import MODEL_MINI, OPENAI_API_KEY
 from tools.supply_chain_tools import (
     get_demand_forecast,
     get_supplier_lead_time,
@@ -72,22 +71,22 @@ def simulation_agent(state: SupplyChainState) -> SupplyChainState:
         elif disruption_sev == "LOW":
             effective_lead_time += 2
 
-    daily_demand = forecast_result.get("daily_demand", 30)
-    forecast_14d = forecast_result.get("total_demand", daily_demand * 14)
+    daily_demand = int(forecast_result.get("daily_demand", 30))   # must be int
+    forecast_14d = int(forecast_result.get("total_demand", daily_demand * 14))
 
     scenario_result = run_scenario_model.invoke({
         "sku_id": sku_id,
         "supplier_id": supplier_id,
-        "current_inventory": inventory_level,
-        "order_quantity": max(forecast_14d + safety_stock, 100),
+        "current_inventory": int(inventory_level),
+        "order_quantity": int(max(forecast_14d + safety_stock, 100)),
         "daily_demand": daily_demand,
-        "lead_time_days": effective_lead_time,
+        "lead_time_days": int(effective_lead_time),
     })
     log_tool_call(run_id, "SIMULATION", "run_scenario_model",
                   {"sku_id": sku_id, "supplier_id": supplier_id}, scenario_result)
 
     # ── LLM reasoning ─────────────────────────────────────────────────────────
-    llm = ChatOpenAI(model=MODEL_MINI, api_key=OPENAI_API_KEY, temperature=0)
+    llm = get_llm("mini")
     historical_trend = state.get("historical_trend", {})
 
     user_msg = f"""
@@ -157,7 +156,7 @@ Determine recommended order quantity and perform self-verification.
         f"recommended_order_qty={recommended_qty}, decision_window={scenario_result.get('decision_window_days', 7)} days."
     )
 
-    cost_usd = (tokens / 1_000_000) * 0.60
+    cost_usd = token_cost(tokens, "mini")
     eval_metrics["simulation"] = {"latency_ms": int((time.time() - t0) * 1000), "tokens": tokens, "cost_usd": cost_usd}
 
     log_agent_complete(run_id, "SIMULATION",

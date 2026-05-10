@@ -21,11 +21,10 @@ from datetime import datetime
 from typing import Any, Dict
 
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from agents._llm import get_llm, token_cost
 
 from agents.state import SupplyChainState
 from audit.soc2_logger import log_agent_complete, log_verification
-from config import MODEL_MINI, OPENAI_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +159,7 @@ def historical_trend_agent(state: SupplyChainState) -> SupplyChainState:
 
     trend_data = compute_historical_trend(sku_id, supplier_id, current_month)
 
-    llm = ChatOpenAI(model=MODEL_MINI, api_key=OPENAI_API_KEY, temperature=0)
+    llm = get_llm("mini")
     user_msg = (
         f"Real historical trend data from Kaggle supply chain datasets:\n"
         f"{json.dumps(trend_data, indent=2)}\n\n"
@@ -231,7 +230,7 @@ def historical_trend_agent(state: SupplyChainState) -> SupplyChainState:
         f"late-risk: {late_risk:.1%} across {trend_data['supplier_total_orders_analyzed']:,} orders."
     )
 
-    cost_usd = (tokens / 1_000_000) * 0.60
+    cost_usd = token_cost(tokens, "mini")
     eval_metrics["historical_trend"] = {
         "latency_ms": int((time.time() - t0) * 1000),
         "tokens": tokens,

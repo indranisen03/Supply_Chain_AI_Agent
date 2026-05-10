@@ -33,7 +33,7 @@ Score three dimensions from 1 to 10:
 
 Rules:
 - quantity_justified < 7 if order qty > 3x forecast with no disruption explanation
-- timeline_realistic < 7 if required_by < today + lead_time_days
+- timeline_realistic < 7 if required_by date allows less than lead_time_days + 3 days buffer from today
 - reasoning_grounded < 7 if reasoning mentions specific documents but they sound fabricated
 
 Return ONLY valid JSON matching this schema (no extra text):
@@ -136,11 +136,15 @@ Score this recommendation on the three dimensions. Be rigorous and independent.
 
     # ── Self-verification ─────────────────────────────────────────────────────
     conf = po.get("confidence", 0.0)
-    conf_ok = conf >= 0.85
-    v1 = (
-        f"[VALIDATION] Confidence {conf:.2f} > threshold 0.85 → "
-        f"{'PASS ✓' if conf_ok else 'FAIL ✗'}"
-    )
+    conf_high = conf >= 0.85
+    conf_ok   = conf >= 0.65
+    if conf_high:
+        conf_verdict = "PASS ✓"
+    elif conf_ok:
+        conf_verdict = "WARN ⚠ moderate — HITL review recommended"
+    else:
+        conf_verdict = "FAIL ✗ below minimum"
+    v1 = f"[VALIDATION] Confidence {conf:.2f} → {conf_verdict}"
     v2 = (
         f"[VALIDATION] Overall score {overall:.1f}/10 → "
         f"{'PASS ✓' if overall > JUDGE_PASS_THRESHOLD else 'FAIL ✗'}"
@@ -149,7 +153,7 @@ Score this recommendation on the three dimensions. Be rigorous and independent.
         f"[VALIDATION] Verdict: {verdict}"
     )
 
-    log_verification(run_id, "VALIDATION", f"confidence >= 0.85 ({conf:.2f})", conf_ok)
+    log_verification(run_id, "VALIDATION", f"confidence >= 0.85 ({conf:.2f})", conf_high)
     log_verification(run_id, "VALIDATION", f"judge_score > {JUDGE_PASS_THRESHOLD} ({overall:.1f})", overall > JUDGE_PASS_THRESHOLD)
     log_judge_score(run_id, overall, verdict, judge.get("flags", []), judge)
 

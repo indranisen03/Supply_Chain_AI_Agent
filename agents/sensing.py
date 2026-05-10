@@ -11,12 +11,11 @@ import time
 import logging
 from typing import Any, Dict
 
-from langchain_openai import ChatOpenAI
+from agents._llm import get_llm, token_cost
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.state import SupplyChainState
 from audit.soc2_logger import log_agent_complete, log_tool_call, log_verification
-from config import MODEL_MINI, OPENAI_API_KEY
 from tools.supply_chain_tools import check_supplier_disruption, get_inventory_level
 
 logger = logging.getLogger(__name__)
@@ -59,7 +58,7 @@ def sensing_agent(state: SupplyChainState) -> SupplyChainState:
                   {"supplier_id": supplier_id}, dis_result)
 
     # ── LLM reasoning + self-verification ────────────────────────────────────
-    llm = ChatOpenAI(model=MODEL_MINI, api_key=OPENAI_API_KEY, temperature=0)
+    llm = get_llm("mini")
 
     user_msg = f"""
 Inventory data: {json.dumps(inv_result)}
@@ -121,7 +120,7 @@ Perform self-verification and return the required JSON.
     )
 
     # ── Cost tracking ─────────────────────────────────────────────────────────
-    cost_usd = (tokens / 1_000_000) * 0.60  # gpt-4o-mini blended rate
+    cost_usd = token_cost(tokens, "mini")
     eval_metrics["sensing"] = {"latency_ms": int((time.time() - t0) * 1000), "tokens": tokens, "cost_usd": cost_usd}
 
     log_agent_complete(run_id, "SENSING",

@@ -13,6 +13,7 @@ import json
 import logging
 import time
 import uuid
+import numpy as np
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal
 
@@ -36,11 +37,10 @@ logger = logging.getLogger(__name__)
 
 def _debug_agent(error: str, state: SupplyChainState, agent_name: str) -> str:
     """Reason about what failed and return corrective guidance."""
-    from langchain_openai import ChatOpenAI
     from langchain_core.messages import HumanMessage
-    from config import MODEL_MINI, OPENAI_API_KEY
+    from agents._llm import get_llm
     try:
-        llm = ChatOpenAI(model=MODEL_MINI, api_key=OPENAI_API_KEY, temperature=0, max_tokens=200)
+        llm = get_llm("mini", max_tokens=200)
         msg = f"Agent {agent_name} failed with error: {error}\nState keys: {list(state.keys())}\nWhat failed and what should be corrected? Answer in 1-2 sentences."
         response = llm.invoke([HumanMessage(content=msg)])
         return response.content.strip()
@@ -54,7 +54,7 @@ def _with_retry(agent_fn, agent_name: str):
         retry_count = state.get("retry_count", 0)
         for attempt in range(MAX_AGENT_RETRIES + 1):
             try:
-                result = agent_fn(state)
+                result = _sanitize(agent_fn(state))
                 if attempt > 0:
                     vlog = list(result.get("verification_logs", []))
                     vlog.append(f"[RETRY] {agent_name} succeeded on attempt {attempt + 1}")
@@ -201,6 +201,23 @@ def should_handle_error(state: SupplyChainState) -> Literal["sensing", "historic
 
 # ── Build the graph ───────────────────────────────────────────────────────────
 
+def _sanitize(obj):
+    """Recursively convert numpy scalar types to Python native so MemorySaver can serialize."""
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+
 def build_graph() -> tuple:
     """
     Returns (compiled_graph, checkpointer).
@@ -243,22 +260,37 @@ def build_graph() -> tuple:
     return graph, checkpointer
 
 
+# ── Singleton graph (shared checkpointer so resume works) ────────────────────
+_CHECKPOINTER = MemorySaver()
+_GRAPH = None
+
+
+def get_graph():
+    """Return the module-level singleton compiled graph."""
+    global _GRAPH
+    if _GRAPH is None:
+        _GRAPH, _ = build_graph()
+        # Swap in the module-level checkpointer so run + resume share state
+        _GRAPH.checkpointer = _CHECKPOINTER
+    return _GRAPH
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def run_pipeline(
-    sku_id: str = "SKU-4821",
+    sku_id: str = "SKU-0000",
     warehouse: str = "WH-Detroit",
-    supplier_id: str = "SUP-001",
+    supplier_id: str = "SUP-003",
     thread_id: str | None = None,
     inventory_override: int | None = None,
 ) -> tuple[SupplyChainState, str]:
     """
     Run the full pipeline synchronously.
     Returns (final_state, run_id).
-    Handles HITL AUTO tier automatically.
-    For SOFT/HARD, returns intermediate state and run_id for resumption.
+    Handles AUTO tier automatically; pauses for SOFT/HARD.
     """
     from tools.supply_chain_tools import clear_cache
+    from langgraph.types import Command
     clear_cache()
 
     run_id = str(uuid.uuid4())
@@ -273,24 +305,23 @@ def run_pipeline(
     if inventory_override is not None:
         state = {**state, "inventory_level": inventory_override}
 
-    graph, _ = build_graph()
+    graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
-    # Run until HITL gate
-    events = list(graph.stream(state, config))
-    last_state = events[-1] if events else state
+    # Run until interrupt_before=["hitl_gate"] fires
+    for _ in graph.stream(state, config):
+        pass
 
-    # Extract state from graph checkpoint
     checkpoint_state = graph.get_state(config)
-    current_state = checkpoint_state.values if checkpoint_state else last_state
+    current_state = dict(checkpoint_state.values) if checkpoint_state else dict(state)
 
-    # If HITL tier is AUTO, the interrupt was already handled — resume immediately
+    # AUTO tier: resume immediately without human input
     tier = current_state.get("hitl_tier", "AUTO")
     if tier == "AUTO":
-        from langgraph.types import Command
-        events = list(graph.stream(Command(resume={"approved": True, "comment": "AUTO"}), config))
+        for _ in graph.stream(Command(resume={"approved": True, "comment": "AUTO"}), config):
+            pass
         checkpoint_state = graph.get_state(config)
-        current_state = checkpoint_state.values if checkpoint_state else current_state
+        current_state = dict(checkpoint_state.values) if checkpoint_state else current_state
 
     return current_state, run_id
 
@@ -298,7 +329,7 @@ def run_pipeline(
 def resume_pipeline(thread_id: str, approved: bool, comment: str = "") -> SupplyChainState:
     """Resume a SOFT or HARD HITL-paused pipeline with human decision."""
     from langgraph.types import Command
-    graph, _ = build_graph()
+    graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
     events = list(graph.stream(Command(resume={"approved": approved, "comment": comment}), config))
     checkpoint_state = graph.get_state(config)
