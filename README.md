@@ -7,7 +7,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
 ![SOC2](https://img.shields.io/badge/SOC2-Audit_Trail-gold)
 
-A production-grade multi-agent AI system that monitors supply chain inventory across a warehouse network and autonomously generates purchase order recommendations — with tiered human-in-the-loop oversight, an independent LLM judge, RAG-grounded policy compliance, and a full SOC2 audit trail.
+A multi-agent supply chain AI procurement recommendation system with tiered HITL oversight, an independent LLM judge, RAG-grounded policy compliance, and a full SOC2 audit trail
 
 
 ---
