@@ -13,7 +13,7 @@ A multi-agent supply chain AI procurement recommendation system with tiered HITL
 ---
 ## Objective
 **Situation**: 
-Automotive supply chains lose millions in production downtime from reactive procurement — orders placed after stockout risk is already critical, with no auditable reasoning trail.
+Automotive companies lose millions when parts are reordered too late, causing production delays with little visibility into how procurement decisions were made.
 
 **Task**: 
 Idea is to build a working AI system that monitors SKU inventory across warehouses, surfaces purchase order recommendations before risk materializes, and routes decisions through a tiered                human in the loop(HITL) approval gate with a full audit trail.
