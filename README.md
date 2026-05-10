@@ -80,7 +80,7 @@ Every decision routes through a tiered approval gate — orders under $10k auto-
 │  └────────────────────────────────────────────────────────────────┘ │
 └──────────────────────────────────────────────────────────────────────┘
 
-RAG:           BM25 EnsembleRetriever (weights 0.4 / 0.6)
+RAG:           BM25 EnsembleRetriever (weight 0.6)
                Stellantis Code of Conduct, Purchasing Guidelines, FAR Part 12
 Observability: LangSmith tracing (opt-in via LANGCHAIN_TRACING_V2=true)
 Self-healing:  Each agent wrapped in retry logic with LLM debug reasoning
