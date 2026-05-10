@@ -11,7 +11,14 @@ A production-grade multi-agent AI system that monitors supply chain inventory ac
 
 
 ---
+## Objective
+**Situation**: Automotive supply chains lose significant production time to reactive procurement meaning orders placed after stockout risk is already critical, with no auditable reasoning trail.
+**Task**: Idea is to build a working AI system that monitors SKU inventory across warehouses, surfaces purchase order recommendations before risk materializes, and routes decisions through a tiered human in the loop approval gate with a full audit trail.
+**Action**: Designed and built a 6-agent LangGraph pipeline with hybrid RAG grounded in real Stellantis procurement documents, a tiered HITL gate (AUTO / SOFT / HARD), an independent Claude judge for blind validation, and a two-page Streamlit dashboard — all within a SOC2-compliant JSONL audit trail.
+**Result**: System runs end-to-end in under 60 seconds, generates RAG-grounded PO recommendations with confidence scores, triggers the correct HITL tier based on order value, and produces a downloadable audit log per run.
+**Data**: Simulated using a Kaggle supply chain dataset (DataCo); RAG grounded in real Stellantis public procurement documents. Production deployment would swap the CSV for live SAP/ERP feeds.
 
+---
 ## What It Does
 
 The system continuously monitors SKU inventory levels across warehouses. When a stockout risk is detected, a 6-agent AI pipeline activates to:
