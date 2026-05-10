@@ -1,7 +1,7 @@
 """
-Stellantis Supply Chain AI — Dashboard v2
+Supply Chain AI — Dashboard v2
 Two-page app: Overview + Decision Explorer
-No sidebar. Stellantis red #C41230 accent throughout.
+No sidebar. Red #C41230 accent throughout.
 """
 
 import json
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Stellantis Supply Chain AI",
+    page_title="Supply Chain AI",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -411,7 +411,7 @@ def _nav():
     with c_brand:
         st.markdown(
             '<div class="nav-brand-cell">'
-            '<span class="nav-brand">STELLANTIS <em>|</em> SUPPLY CHAIN AI</span>'
+            '<span class="nav-brand">SUPPLY CHAIN <em>|</em> AI</span>'
             '</div>',
             unsafe_allow_html=True,
         )
@@ -445,7 +445,7 @@ def _overview():
     # Hero
     st.markdown("""
 <div class="hero">
-  <div class="hero-tag">Stellantis Procurement Intelligence</div>
+  <div class="hero-tag">Procurement Intelligence</div>
   <div class="hero-h1">Know what to order<br>before the line stops.</div>
   <div class="hero-sub">Multi-agent AI monitors every SKU across your supply chain and surfaces procurement decisions before risk becomes downtime.</div>
 </div>""", unsafe_allow_html=True)
@@ -1211,7 +1211,7 @@ def _tab_reasoning(state: dict):
         name = str(src).split("/")[-1]
         meta = _RAG_META.get(name, {
             "section": "Policy Reference",
-            "excerpt": "Stellantis procurement policy document referenced for compliance validation.",
+            "excerpt": "Company procurement policy document referenced for compliance validation.",
         })
         relevance = max(0.62, 0.96 - i * 0.09)
         bar_w = int(relevance * 100)
