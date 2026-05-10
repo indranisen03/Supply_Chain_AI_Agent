@@ -20,6 +20,7 @@ Idea is to build a working AI system that monitors SKU inventory across warehous
 
 **Action**: 
 Designed and built a 6-agent LangGraph pipeline with hybrid RAG grounded in real Stellantis procurement documents, a tiered HITL gate (AUTO / SOFT / HARD), an independent Claude judge for                blind validation, and a two-page Streamlit dashboard — all within a SOC2-compliant JSONL audit trail.
+
 **Result**: 
 System runs end-to-end in under 60 seconds, generates RAG-grounded PO recommendations with confidence scores, triggers the correct HITL tier based on order value, and produces a downloadable audit log per run.
 
