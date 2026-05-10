@@ -1,4 +1,4 @@
-# Stellantis Supply Chain AI Agent
+# Supply Chain AI Agent
 
 ![Python](https://img.shields.io/badge/Python-3.10-blue)
 ![LangGraph](https://img.shields.io/badge/LangGraph-0.2-orange)
@@ -47,7 +47,7 @@ Every decision routes through a tiered approval gate — orders under $10k auto-
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│               STELLANTIS SUPPLY CHAIN AI PIPELINE                │
+│                SUPPLY CHAIN AI PIPELINE                │
 │                                                                   │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────────┐ │
 │  │ Agent 1  │─▶│ Agent 2  │─▶│ Agent 3  │─▶│    Agent 4      │ │
