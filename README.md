@@ -273,4 +273,4 @@ Checks:
 
 ## License
 
-Proprietary — Stellantis / TCS prototype. Not for distribution.
+MIT License — personal portfolio project.
