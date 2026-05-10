@@ -35,7 +35,7 @@ BG     = "#F8F8F8"
 
 AGENTS = [
     ("sensing",          "Sensing"),
-    ("historical_trend", "Historical Trend"),
+    ("hist_trend", "Historical Trend"),
     ("simulation",       "Simulation"),
     ("optimization",     "Optimization"),
     ("hitl_gate",        "HITL Gate"),
@@ -564,7 +564,7 @@ def _progress_row(name: str, status: str, summary: str) -> str:
 
 
 def _infer_status(node: str, state: dict) -> str:
-    pfx = {"sensing":"[SENSING]","historical_trend":"[HISTORICAL]",
+    pfx = {"sensing":"[SENSING]","hist_trend":"[HISTORICAL]",
            "simulation":"[SIMULATION]","optimization":"[OPTIMIZATION]",
            "hitl_gate":"[HITL]","validation":"[VALIDATION]"}.get(node)
 
@@ -588,7 +588,7 @@ def _infer_summary(node: str, state: dict) -> str:
         inv = state.get("inventory_level", "?")
         d   = "Disruption detected" if state.get("disruption_detected") else "No disruption"
         return f"Inventory {inv} units  —  {d}"
-    if node == "historical_trend":
+    if node == "hist_trend":
         t    = state.get("historical_trend", {})
         rate = t.get("supplier_on_time_rate", 0)
         note = t.get("seasonal_note","")[:55]
@@ -846,7 +846,7 @@ def _agent_status(key: str, state: dict) -> Tuple[str, str, str]:
     logs = state.get("verification_logs", [])
     pfx  = {
         "sensing":         "[SENSING]",
-        "historical_trend":"[HISTORICAL]",
+        "hist_trend":      "[HISTORICAL]",
         "simulation":      "[SIMULATION]",
         "optimization":    "[OPTIMIZATION]",
         "hitl_gate":       "[HITL]",
@@ -1006,7 +1006,7 @@ def _parse_checks(key: str, state: dict) -> List[dict]:
     logs = state.get("verification_logs", [])
     pfx  = {
         "sensing":         "[SENSING]",
-        "historical_trend":"[HISTORICAL]",
+        "hist_trend":      "[HISTORICAL]",
         "simulation":      "[SIMULATION]",
         "optimization":    "[OPTIMIZATION]",
         "hitl_gate":       "[HITL]",

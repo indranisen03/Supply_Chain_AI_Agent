@@ -228,7 +228,7 @@ def build_graph() -> tuple:
 
     # Register nodes (all wrapped with retry + self-healing)
     workflow.add_node("sensing", _with_retry(sensing_agent, "SENSING"))
-    workflow.add_node("historical_trend", _with_retry(historical_trend_agent, "HISTORICAL_TREND"))
+    workflow.add_node("hist_trend", _with_retry(historical_trend_agent, "HISTORICAL_TREND"))
     workflow.add_node("simulation", _with_retry(simulation_agent, "SIMULATION"))
     workflow.add_node("optimization", _with_retry(optimization_agent, "OPTIMIZATION"))
     workflow.add_node("hitl_gate", hitl_gate_node)
@@ -239,8 +239,8 @@ def build_graph() -> tuple:
 
     # Define pipeline flow
     workflow.set_entry_point("sensing")
-    workflow.add_edge("sensing", "historical_trend")
-    workflow.add_edge("historical_trend", "simulation")
+    workflow.add_edge("sensing", "hist_trend")
+    workflow.add_edge("hist_trend", "simulation")
     workflow.add_edge("simulation", "optimization")
     workflow.add_edge("optimization", "cost_check")
     workflow.add_edge("cost_check", "hitl_gate")

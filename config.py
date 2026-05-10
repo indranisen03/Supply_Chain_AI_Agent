@@ -14,8 +14,6 @@ DOCS_DIR = DATA_DIR / "docs"
 AUDIT_DIR = BASE_DIR / "audit"
 
 AUDIT_TRAIL_PATH = AUDIT_DIR / "audit_trail.jsonl"
-FAISS_INDEX_PATH = DATA_DIR / "faiss_index"
-
 # Dataset 1 — SKU catalog (harshsingh2209/supply-chain-analysis)
 KAGGLE_CSV_PATH = KAGGLE_DIR / "supply_chain_data.csv"
 SKU_CATALOG_PATH = KAGGLE_CSV_PATH  # alias
@@ -24,7 +22,7 @@ SKU_CATALOG_PATH = KAGGLE_CSV_PATH  # alias
 DATACO_CSV_PATH = KAGGLE_DIR / "DataCoSupplyChainDataset.csv"
 
 # Ensure directories exist
-for d in [DATA_DIR, KAGGLE_DIR, DOCS_DIR, AUDIT_DIR, FAISS_INDEX_PATH.parent]:
+for d in [DATA_DIR, KAGGLE_DIR, DOCS_DIR, AUDIT_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ── LLM Models ─────────────────────────────────────────────────────────────────
@@ -68,8 +66,7 @@ MAX_COST_PER_RUN_USD = float(os.getenv("MAX_COST_PER_RUN_USD", "0.50"))
 RAG_CHUNK_SIZE = 500
 RAG_CHUNK_OVERLAP = 50
 RAG_TOP_K = 3
-ENSEMBLE_BM25_WEIGHT = 0.6
-ENSEMBLE_FAISS_WEIGHT = 0.4
+ENSEMBLE_BM25_WEIGHT = 1.0
 
 # ── Safety Stock & Thresholds ──────────────────────────────────────────────────
 DEFAULT_SAFETY_STOCK = 300
