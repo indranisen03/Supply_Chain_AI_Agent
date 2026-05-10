@@ -1,56 +1,94 @@
-# Stellantis Supply Chain AI
+# Stellantis Supply Chain AI Agent
 
-![Python](https://img.shields.io/badge/Python-3.11-blue)
-![LangGraph](https://img.shields.io/badge/LangGraph-0.2.74-orange)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
+![Python](https://img.shields.io/badge/Python-3.10-blue)
+![LangGraph](https://img.shields.io/badge/LangGraph-0.2-orange)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.45-red)
-![Claude](https://img.shields.io/badge/Claude-Sonnet_4.5-purple)
-![GPT4o](https://img.shields.io/badge/GPT-4o-teal)
+![Claude](https://img.shields.io/badge/Claude-Sonnet_4.6-purple)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)
 ![SOC2](https://img.shields.io/badge/SOC2-Audit_Trail-gold)
 
-Production-grade multi-agent AI system for Stellantis procurement decisions. Demonstrated to TCS Business Lead as a working prototype.
+A production-grade multi-agent AI system that monitors supply chain inventory across a warehouse network and autonomously generates purchase order recommendations — with tiered human-in-the-loop oversight, an independent LLM judge, RAG-grounded policy compliance, and a full SOC2 audit trail.
+
+Built as a working prototype demonstrated to a TCS Business Lead.
+
+---
+
+## What It Does
+
+The system continuously monitors SKU inventory levels across warehouses. When a stockout risk is detected, a 6-agent AI pipeline activates to:
+
+1. **Sense** current inventory, disruptions, and supplier status
+2. **Analyse** 3 years of historical demand and supplier performance trends
+3. **Simulate** three what-if scenarios (order today vs. wait 7 vs. 14 days)
+4. **Recommend** a purchase order grounded in Stellantis procurement policy documents
+5. **Validate** the recommendation with an independent Claude judge (blind evaluation)
+6. **Summarise** the full decision trail in plain English for procurement teams
+
+Every decision routes through a tiered approval gate — orders under $10k auto-approve, larger orders require human sign-off before proceeding.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                  STELLANTIS SUPPLY CHAIN AI PIPELINE                 │
-│                                                                       │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────────────┐ │
-│  │ Agent 1  │──▶│ Agent 2  │──▶│ Agent 3  │──▶│    Agent 4       │ │
-│  │ Sensing  │   │Historical│   │Simulation│   │  Optimization    │ │
-│  │GPT-4o-m  │   │Trend     │   │GPT-4o-m  │   │  GPT-4o + RAG   │ │
-│  │          │   │GPT-4o-m  │   │          │   │  FAISS+BM25     │ │
-│  └──────────┘   └──────────┘   └──────────┘   └────────┬─────────┘ │
-│                                                          │            │
-│  ┌───────────────────────────────────────────────────────▼──────────┐ │
-│  │                    TIERED HITL GATE                               │ │
-│  │  🟢 AUTO (<$10k): log + proceed immediately                      │ │
-│  │  🟡 SOFT ($10k-$50k): proceed after 12hr timeout                │ │
-│  │  🔴 HARD (>$50k): full block — explicit approval required        │ │
-│  └───────────────────────────────────┬───────────────────────────────┘ │
-│                                       │                                  │
-│  ┌────────────────────────────────────▼──────────────────────────────┐ │
-│  │ Agent 5: Validation (Claude Sonnet 4.5 — independent 2nd opinion) │ │
-│  │  Scores: quantity_justified / timeline_realistic / rag_grounded   │ │
-│  └────────────────────────────────────┬──────────────────────────────┘ │
-│                                        │                                 │
-│  ┌─────────────────────────────────────▼─────────────────────────────┐ │
-│  │ Agent 6: Executive Summarizer (GPT-4o-mini)                       │ │
-│  └─────────────────────────────────────┬──────────────────────────────┘│
-│                                         │                               │
-│  ┌──────────────────────────────────────▼─────────────────────────────┐│
-│  │              SOC2 AUDIT TRAIL (append-only JSONL)                  ││
-│  │     Every tool call, verification, human decision, judge score     ││
-│  └─────────────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│               STELLANTIS SUPPLY CHAIN AI PIPELINE                │
+│                                                                   │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────────┐ │
+│  │ Agent 1  │─▶│ Agent 2  │─▶│ Agent 3  │─▶│    Agent 4      │ │
+│  │ Sensing  │  │Historical│  │Simulation│  │  Optimization   │ │
+│  │          │  │  Trend   │  │          │  │   + RAG         │ │
+│  └──────────┘  └──────────┘  └──────────┘  └───────┬─────────┘ │
+│                                                      │            │
+│  ┌───────────────────────────────────────────────────▼─────────┐ │
+│  │                    TIERED HITL GATE                          │ │
+│  │  AUTO  (< $10k)      — log and proceed immediately           │ │
+│  │  SOFT  ($10k–$50k)   — auto-approves after 12hr timeout      │ │
+│  │  HARD  (> $50k)      — full block, explicit approval required │ │
+│  └──────────────────────────────────┬────────────────────────────┘ │
+│                                      │                              │
+│  ┌───────────────────────────────────▼────────────────────────────┐ │
+│  │   Agent 5 — Validation Judge (Claude Sonnet 4.5)               │ │
+│  │   Blind evaluation: quantity_justified / timeline_realistic     │ │
+│  │   / reasoning_grounded  →  score out of 10, PASS / FAIL        │ │
+│  └───────────────────────────────────┬────────────────────────────┘ │
+│                                       │                              │
+│  ┌────────────────────────────────────▼───────────────────────────┐ │
+│  │   Agent 6 — Executive Summarizer (Claude Haiku 4.5)            │ │
+│  │   5–6 sentence plain-English summary for procurement teams      │ │
+│  └────────────────────────────────────┬───────────────────────────┘ │
+│                                        │                             │
+│  ┌─────────────────────────────────────▼──────────────────────────┐ │
+│  │              SOC2 AUDIT TRAIL  (append-only JSONL)             │ │
+│  │   Every tool call, verification check, human decision,         │ │
+│  │   judge score, token count, cost, and integrity hash           │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
 
-Observability: LangSmith tracing (LANGCHAIN_TRACING_V2=true)
-RAG: FAISS + BM25 EnsembleRetriever (weights=[0.4, 0.6])
-     Stellantis Code of Conduct + Purchasing Guidelines + FAR Part 12
+RAG:           FAISS + BM25 EnsembleRetriever (weights 0.4 / 0.6)
+               Stellantis Code of Conduct, Purchasing Guidelines, FAR Part 12
+Observability: LangSmith tracing (opt-in via LANGCHAIN_TRACING_V2=true)
+Self-healing:  Each agent wrapped in retry logic with LLM debug reasoning
 ```
+
+---
+
+## Dashboard
+
+A two-page Streamlit app gives procurement teams full visibility into every run.
+
+**Overview page**
+- Live urgency cards (Critical / At Risk / Healthy) from Kaggle supply chain data
+- Scenario presets: Normal, Port Strike, High Value, Critical Stockout
+- SKU and warehouse selectors
+- Live pipeline animation — each agent lights up as it runs
+
+**Decision Explorer page**
+- Single-row PO summary strip: order qty, value, supplier, required-by date, confidence tier, HITL tier
+- Pipeline panel with per-agent status (Risk Found / Warning / Complete) and verification pill counts
+- Four tabs: Verification Checks, Scenario Simulation chart, RAG Policy Sources, SOC2 Audit log
+- HITL banner with Approve (green) / Reject (red) buttons for SOFT and HARD tier runs
+- Fixed bottom strip: cumulative cost, tokens, latency, and judge verdict
 
 ---
 
@@ -58,52 +96,53 @@ RAG: FAISS + BM25 EnsembleRetriever (weights=[0.4, 0.6])
 
 | Layer | Technology |
 |---|---|
-| Orchestration | LangGraph 0.2 (StateGraph + MemorySaver HITL) |
-| LLMs | GPT-4o-mini (Agents 1,2,3,6) · GPT-4o (Agent 4) · Claude Sonnet 4.5 (Judge) |
-| RAG | FAISS + BM25 EnsembleRetriever (BM25 weight=0.6) |
-| Structured Output | Pydantic v2 + `.with_structured_output()` |
-| Observability | LangSmith tracing |
-| API | FastAPI (async, auto OpenAPI) |
-| UI | Streamlit (live trace + metrics + approval) |
-| Audit | Append-only SOC2 JSONL trail |
+| Orchestration | LangGraph 0.2 — StateGraph, MemorySaver, interrupt/resume |
+| LLMs | Claude Haiku 4.5 (Agents 1–3, 6) · Claude Sonnet 4.6 (Agent 4) · Claude Sonnet 4.5 (Judge) |
+| RAG | FAISS vector store + BM25 EnsembleRetriever |
+| Structured output | Pydantic v2 models for PO and judge output |
+| UI | Streamlit 1.45 — live streaming via `st.empty()`, JS button styling |
+| API | FastAPI — run, resume, status, and audit endpoints |
+| Audit | Append-only SOC2 JSONL with integrity hash per event |
+| Observability | LangSmith tracing (optional) |
+| Data | Kaggle supply chain datasets + synthetic data generator |
+| Evals | RAGAS faithfulness + context precision + E2E objective checks |
 | Deploy | Docker + docker-compose |
-| Data | Synthetic supply chain CSV (Kaggle-schema compatible) |
-| Evals | RAGAS faithfulness + context_precision + E2E objective checks |
 
 ---
 
 ## Project Structure
 
 ```
-supply_chain_agent/
+Supply_Chain_AI_Agent/
 ├── agents/
+│   ├── _llm.py               # Unified LLM factory (Claude / GPT-4o routing)
 │   ├── state.py              # Shared TypedDict + Pydantic models
-│   ├── sensing.py            # Agent 1: inventory + disruption detection
-│   ├── historical_trend.py   # Agent 2: Kaggle CSV trend analysis
-│   ├── simulation.py         # Agent 3: 3 what-if scenario model
-│   ├── optimization.py       # Agent 4: RAG-grounded PO recommendation
-│   ├── validation.py         # Agent 5: Claude LLM judge
-│   └── summarizer.py         # Agent 6: executive summary
+│   ├── sensing.py            # Agent 1 — inventory level, disruption detection
+│   ├── historical_trend.py   # Agent 2 — 3-year trend analysis from Kaggle CSV
+│   ├── simulation.py         # Agent 3 — three what-if scenario model
+│   ├── optimization.py       # Agent 4 — RAG-grounded PO recommendation
+│   ├── validation.py         # Agent 5 — Claude blind judge (3 dimensions)
+│   └── summarizer.py         # Agent 6 — plain-English executive summary
 ├── tools/
-│   └── supply_chain_tools.py # Simulated SAP tools + session cache
+│   └── supply_chain_tools.py # Simulated SAP tools + per-run session cache
 ├── rag/
-│   ├── document_loader.py    # PDF download + chunking + stubs
+│   ├── document_loader.py    # PDF download, chunking, and stubs
 │   └── retriever.py          # FAISS + BM25 EnsembleRetriever
 ├── audit/
-│   └── soc2_logger.py        # Append-only SOC2 JSONL
+│   └── soc2_logger.py        # Append-only SOC2 JSONL logger
 ├── api/
-│   └── main.py               # FastAPI (run/resume/status/audit)
+│   └── main.py               # FastAPI — run / resume / status / audit endpoints
 ├── ui/
-│   └── dashboard.py          # Streamlit dashboard
+│   └── dashboard.py          # Streamlit two-page dashboard
 ├── data/
+│   ├── data_mapper.py        # Kaggle CSV loader and SKU catalog builder
 │   ├── generate_synthetic_data.py
-│   ├── kaggle/               # supply_chain.csv (generated or real)
-│   └── docs/                 # Downloaded Stellantis PDFs
+│   └── kaggle/               # CSV files (gitignored)
 ├── evals/
 │   └── ragas_eval.py         # RAGAS + E2E evaluations
-├── graph.py                  # LangGraph StateGraph + HITL + retry
-├── config.py                 # Central config + env vars
-├── demo.py                   # 3-scenario demo script
+├── graph.py                  # LangGraph StateGraph, HITL gate, retry wrapper
+├── config.py                 # Central config — all env vars resolved at import
+├── demo.py                   # CLI demo script (3 scenarios)
 ├── requirements.txt
 ├── .env.example
 ├── Dockerfile
@@ -112,19 +151,20 @@ supply_chain_agent/
 
 ---
 
-## Setup
+## Quick Start
 
 ### Prerequisites
-- Python 3.11+
-- Docker + docker-compose (for containerized deployment)
+- Python 3.10+
+- Anthropic API key (required)
+- OpenAI API key (optional — system falls back to Claude-only if absent)
 
 ### 1. Clone and configure
 
 ```bash
-git clone <repo-url>
-cd supply_chain_agent
+git clone git@github.com:indranisen03/Supply_Chain_AI_Agent.git
+cd Supply_Chain_AI_Agent
 cp .env.example .env
-# Edit .env with your API keys
+# Add your ANTHROPIC_API_KEY (and optionally OPENAI_API_KEY) to .env
 ```
 
 ### 2. Install dependencies
@@ -134,36 +174,27 @@ python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Generate synthetic data
+### 3. Run the dashboard
 
 ```bash
-python data/generate_synthetic_data.py
-```
-
-> The system also auto-generates data if the CSV is missing at runtime.
-> To use the real Kaggle dataset, download from
-> `kaggle.com/datasets/prashantk93/supply-chain-management-for-car`
-> and save as `data/kaggle/supply_chain.csv`.
-
-### 4. Run the demo
-
-```bash
-python demo.py --all
-```
-
-### 5. Start the full stack
-
-```bash
-# Terminal 1 — API
-uvicorn api.main:app --reload --port 8000
-
-# Terminal 2 — Streamlit UI
 streamlit run ui/dashboard.py
 ```
 
-Open `http://localhost:8501` for the dashboard, `http://localhost:8000/docs` for OpenAPI.
+Open `http://localhost:8501`. Select a scenario preset and click **Run procurement analysis**.
 
-### 6. Docker deployment
+### 4. Run the full stack (API + UI)
+
+```bash
+# Terminal 1 — FastAPI
+uvicorn api.main:app --reload --port 8000
+
+# Terminal 2 — Streamlit
+streamlit run ui/dashboard.py --server.port 8501
+```
+
+API docs at `http://localhost:8000/docs`.
+
+### 5. Docker
 
 ```bash
 docker-compose up --build
@@ -171,90 +202,73 @@ docker-compose up --build
 
 ---
 
-## Demo Scenarios
+## Scenario Presets
 
-| Scenario | SKU | Supplier | Trigger | Expected HITL |
+| Preset | SKU | Warehouse | Inventory | Expected Outcome |
 |---|---|---|---|---|
-| Normal Reorder | SKU-4821 | SUP-001 | Inventory below safety stock | SOFT ($9k) |
-| High-Value HARD Block | SKU-2024 | SUP-004 | ADAS sensor, unit_cost=$320 | **HARD** (>$50k) |
-| Port Strike | SKU-4821 | SUP-002 | Active disruption + low inventory | HARD |
-
-```bash
-python demo.py --scenario normal
-python demo.py --scenario high_value
-python demo.py --scenario port_strike
-```
-
----
-
-## Data Schema (Synthetic CSV)
-
-Column | Type | Maps To
----|---|---
-`sku_id` | str | Part identifier
-`supplier_id` | str | Supplier
-`monthly_demand` | int | Demand signal
-`inventory_level` | int | Current stock
-`safety_stock` | int | Safety threshold
-`lead_time_days` | int | Supplier lead time
-`on_time_delivery` | 0/1 | On-time flag
-`unit_cost` | float | Unit price
-`seasonal_factor` | float | Seasonal multiplier
-`year`, `month` | int | Time dimension
+| Normal | SKU-0000 | WH-Detroit | 350 units | AUTO tier, healthy reorder |
+| Port Strike | SKU-0026 | WH-Chicago | 5 units | SOFT/HARD, disruption detected |
+| High Value | SKU-0047 | WH-Dallas | 8 units | HARD tier, explicit approval |
+| Critical Stockout | SKU-0000 | WH-Detroit | 10 units | SOFT/HARD, urgent order |
 
 ---
 
 ## HITL Tiers
 
-| Tier | Threshold | Behavior | UI |
-|---|---|---|---|
-| 🟢 AUTO | < $10,000 | Proceeds immediately | Green badge |
-| 🟡 SOFT | $10k–$50k | Auto-approves after 12hr countdown | Yellow badge + timer |
-| 🔴 HARD | > $50,000 | Full block — approval button required | Red badge + button |
+| Tier | PO Value | Behaviour |
+|---|---|---|
+| AUTO | < $10,000 | Proceeds immediately, logged |
+| SOFT | $10k – $50k | Auto-approves after 12-hour timeout; overrideable |
+| HARD | > $50,000 | Pipeline blocked until explicit human approval |
+
+---
+
+## Confidence Scoring
+
+The Validation agent scores the PO recommendation across three dimensions and reports a three-tier confidence result:
+
+| Tier | Threshold | Meaning |
+|---|---|---|
+| PASS | ≥ 0.85 | High confidence — proceed |
+| WARN | 0.65 – 0.85 | Moderate — human review recommended |
+| FAIL | < 0.65 | Low confidence — order flagged |
 
 ---
 
 ## SOC2 Audit Trail
 
-Every run appends to `audit/audit_trail.jsonl`:
+Every run appends structured events to `audit/audit_trail.jsonl`:
+
 ```json
 {
   "run_id": "uuid",
-  "timestamp": "2026-05-08T...",
+  "timestamp": "2026-05-10T09:14:02.341Z",
   "agent": "OPTIMIZATION",
   "action": "agent_complete",
-  "input_summary": null,
-  "output_summary": {"quantity": 800, "hitl_tier": "HARD"},
+  "output_summary": { "quantity": 800, "hitl_tier": "HARD" },
   "verification_passed": true,
-  "cost_usd": 0.0012,
-  "tokens_used": 420,
+  "cost_usd": 0.0014,
+  "tokens_used": 480,
   "integrity_hash": "a3f92b1c..."
 }
 ```
+
+The audit log is excluded from version control (runtime-generated). It can be downloaded as CSV directly from the dashboard SOC2 Audit tab.
 
 ---
 
 ## Evaluations
 
 ```bash
-# Run E2E evals (requires a completed run)
 python -m evals.ragas_eval
 ```
 
-Metrics checked:
-- `qty_coverage`: recommended_qty ≥ forecast + safety_stock
-- `timeline_valid`: required_by > today + lead_time_days
-- `cost_per_run`: < $0.50
-- `judge_score`: > 7.0 (PASS verdict)
-- RAGAS `faithfulness` + `context_precision`
-
----
-
-## <!-- DEMO GIF PLACEHOLDER -->
-
-![Demo GIF](docs/demo.gif)
-
-*Architecture diagram and demo recording coming soon.*
+Checks:
+- `qty_coverage` — recommended qty ≥ forecast + safety stock
+- `timeline_valid` — required-by date ≥ today + lead time days
+- `cost_per_run` — < $0.50 per full pipeline run
+- `judge_score` — > 7.0 for PASS verdict
+- RAGAS `faithfulness` and `context_precision` on RAG-grounded reasoning
 
 ---
 
