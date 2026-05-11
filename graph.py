@@ -95,50 +95,71 @@ def _with_retry(agent_fn, agent_name: str):
 
 def hitl_gate_node(state: SupplyChainState) -> SupplyChainState:
     """
-    Tiered Human-in-the-Loop gate.
-    - AUTO: proceed immediately (human_approved already True)
-    - SOFT: interrupt with countdown info; auto-approve after timeout
-    - HARD: interrupt and block — requires explicit human approval
+    Tiered Human-in-the-Loop gate. ALL tiers interrupt — agents NEVER
+    autonomously execute purchases.
+
+    - AUTO  (<$10k):  fast-track, 24hr escalation window to SOFT
+    - SOFT  ($10-50k): 12hr review window, escalates to HARD on timeout
+    - HARD  (>$50k):  hard block, no timeout, explicit approval only
+
+    human_approved is ONLY set True when a human explicitly clicks Approve.
     """
     run_id = state["run_id"]
     tier = state.get("hitl_tier", "AUTO")
     po = state.get("po_recommendation", {})
 
-    if tier == "AUTO":
-        log_human_decision(run_id, tier, True, "Auto-approved (value < $10k)")
-        vlog = list(state.get("verification_logs", []))
-        vlog.append("[HITL] Tier AUTO — proceeding immediately ✓")
-        return {**state, "human_approved": True, "verification_logs": vlog}
+    _tier_messages = {
+        "AUTO": "[AUTO] Fast-track approval required. No action in 24hrs will escalate to SOFT.",
+        "SOFT": "[SOFT] Review required within 12hrs. No action will escalate to HARD.",
+        "HARD": "[HARD] Pipeline blocked. Explicit approval required — no timeout fallback.",
+    }
 
-    # SOFT and HARD tiers trigger interrupt for human review
     interrupt_payload = {
         "tier": tier,
         "run_id": run_id,
         "po_recommendation": po,
         "hitl_deadline": state.get("hitl_deadline"),
-        "message": (
-            f"{'[SOFT] Proceed within 12 hours or this will auto-approve.' if tier == 'SOFT' else '[HARD] Explicit approval required — pipeline blocked.'}"
-        ),
+        "message": _tier_messages.get(tier, ""),
     }
 
-    # This suspends graph execution until graph.invoke(Command(resume=...)) is called
+    # Suspends graph execution until resume_pipeline() is called
     human_input: dict = interrupt(interrupt_payload)
 
-    approved = human_input.get("approved", tier == "SOFT")  # SOFT defaults to approve if no input
-    comment = human_input.get("comment", "")
+    # human_approved is ONLY True from an explicit human decision
+    approved = human_input.get("approved", False)
+    notes = human_input.get("notes", "")
+    comment = human_input.get("comment", notes)
 
-    log_human_decision(run_id, tier, approved, comment)
+    # Check if deadline was exceeded — record escalation, never auto-approve
+    escalation_tier = state.get("escalation_tier")
+    deadline_str = state.get("hitl_deadline")
+    if deadline_str:
+        try:
+            deadline = datetime.fromisoformat(deadline_str)
+            if datetime.now() > deadline:
+                if tier == "AUTO":
+                    escalation_tier = "AUTO→SOFT"
+                elif tier == "SOFT":
+                    escalation_tier = "SOFT→HARD"
+        except ValueError:
+            pass
+
+    log_human_decision(run_id, tier, approved, notes=notes, escalation_tier=escalation_tier)
+
     vlog = list(state.get("verification_logs", []))
+    esc_tag = f" [escalated from {escalation_tier}]" if escalation_tier else ""
     vlog.append(
-        f"[HITL] Tier {tier} — human {'APPROVED ✓' if approved else 'REJECTED ✗'}"
-        + (f" — {comment}" if comment else "")
+        f"[HITL] Tier {tier}{esc_tag} — human {'APPROVED ✓' if approved else 'REJECTED ✗'}"
+        + (f" — {notes}" if notes else "")
     )
     trail = list(state.get("decision_trail", []))
-    trail.append(f"HITL {tier}: human decision = {'approved' if approved else 'rejected'}.")
+    trail.append(f"HITL {tier}{esc_tag}: human decision = {'approved' if approved else 'rejected'}.")
 
     return {
         **state,
         "human_approved": approved,
+        "hitl_notes": notes,
+        "escalation_tier": escalation_tier,
         "verification_logs": vlog,
         "decision_trail": trail,
     }
@@ -285,12 +306,11 @@ def run_pipeline(
     inventory_override: int | None = None,
 ) -> tuple[SupplyChainState, str]:
     """
-    Run the full pipeline synchronously.
-    Returns (final_state, run_id).
-    Handles AUTO tier automatically; pauses for SOFT/HARD.
+    Run the full pipeline synchronously up to the HITL gate.
+    Always pauses for human confirmation — no tier is auto-approved.
+    Returns (paused_state, run_id).
     """
     from tools.supply_chain_tools import clear_cache
-    from langgraph.types import Command
     clear_cache()
 
     run_id = str(uuid.uuid4())
@@ -308,29 +328,21 @@ def run_pipeline(
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
 
-    # Run until interrupt_before=["hitl_gate"] fires
+    # Run until interrupt_before=["hitl_gate"] fires — always pauses here
     for _ in graph.stream(state, config):
         pass
 
     checkpoint_state = graph.get_state(config)
     current_state = dict(checkpoint_state.values) if checkpoint_state else dict(state)
 
-    # AUTO tier: resume immediately without human input
-    tier = current_state.get("hitl_tier", "AUTO")
-    if tier == "AUTO":
-        for _ in graph.stream(Command(resume={"approved": True, "comment": "AUTO"}), config):
-            pass
-        checkpoint_state = graph.get_state(config)
-        current_state = dict(checkpoint_state.values) if checkpoint_state else current_state
-
     return current_state, run_id
 
 
-def resume_pipeline(thread_id: str, approved: bool, comment: str = "") -> SupplyChainState:
-    """Resume a SOFT or HARD HITL-paused pipeline with human decision."""
+def resume_pipeline(thread_id: str, approved: bool, notes: str = "", comment: str = "") -> SupplyChainState:
+    """Resume any HITL-paused pipeline with an explicit human decision."""
     from langgraph.types import Command
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id}}
-    events = list(graph.stream(Command(resume={"approved": approved, "comment": comment}), config))
+    list(graph.stream(Command(resume={"approved": approved, "notes": notes, "comment": comment or notes}), config))
     checkpoint_state = graph.get_state(config)
     return checkpoint_state.values if checkpoint_state else {}

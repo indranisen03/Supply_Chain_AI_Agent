@@ -46,9 +46,9 @@ No extra text.
 
 
 def _determine_hitl_tier(estimated_value: float) -> tuple[str, bool]:
-    """Return (tier, requires_human_approval)."""
+    """Return (tier, requires_human_approval). All tiers require human confirmation."""
     if estimated_value < HITL_AUTO_MAX_USD:
-        return "AUTO", False
+        return "AUTO", True
     elif estimated_value <= HITL_SOFT_MAX_USD:
         return "SOFT", True
     else:
@@ -156,9 +156,9 @@ Fields: part_id, quantity, required_by, supplier_id, estimated_value,
 
     # ── Override HITL tier with deterministic logic (LLM can't override thresholds) ──
     actual_value = po_dict.get("estimated_value", estimated_value)
-    actual_tier, actual_requires_approval = _determine_hitl_tier(actual_value)
+    actual_tier, _ = _determine_hitl_tier(actual_value)
     po_dict["hitl_tier"] = actual_tier
-    po_dict["requires_human_approval"] = actual_requires_approval
+    po_dict["requires_human_approval"] = True  # All tiers require human confirmation
 
     # Ensure rag_sources populated
     if not po_dict.get("rag_sources"):
@@ -213,9 +213,11 @@ Fields: part_id, quantity, required_by, supplier_id, estimated_value,
         f"by {po_dict.get('required_by')}, value ${actual_value:,.2f}, tier={actual_tier}."
     )
 
-    # ── HITL deadline (SOFT tier countdown) ───────────────────────────────────
+    # ── HITL deadline — AUTO=24hr, SOFT=12hr, HARD=no timeout ────────────────
     hitl_deadline = None
-    if actual_tier == "SOFT":
+    if actual_tier == "AUTO":
+        hitl_deadline = (datetime.now() + timedelta(hours=24)).isoformat()
+    elif actual_tier == "SOFT":
         hitl_deadline = (datetime.now() + timedelta(hours=SOFT_HITL_TIMEOUT_HOURS)).isoformat()
 
     # Clear simulation_scenarios from state after consumption (memory optimization)
@@ -228,7 +230,7 @@ Fields: part_id, quantity, required_by, supplier_id, estimated_value,
         **state,
         "po_recommendation": po_dict,
         "hitl_tier": actual_tier,
-        "human_approved": not actual_requires_approval,  # AUTO → pre-approved
+        "human_approved": False,  # Never pre-approved — human must explicitly confirm
         "hitl_deadline": hitl_deadline,
         "simulation_scenarios": [],  # cleared — consumed
         "verification_logs": verification_logs,

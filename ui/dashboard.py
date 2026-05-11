@@ -266,11 +266,16 @@ div[data-testid="stButton"] > button[kind="primary"]:hover {{
 /* ── HITL banner ── */
 .hitl-banner        {{ border-radius:8px; padding:16px 20px; margin-bottom:20px;
                        border:1.5px solid; }}
+.hitl-auto          {{ background:#E9F5EE; border-color:{GREEN}; }}
 .hitl-soft          {{ background:#FEF9ED; border-color:{AMBER}; }}
 .hitl-hard          {{ background:#FEF0F3; border-color:{RED}; }}
 .hitl-title         {{ font-size:14px; font-weight:700; margin-bottom:4px; }}
+.hitl-auto .hitl-title {{ color:{GREEN}; }}
 .hitl-soft .hitl-title {{ color:{AMBER}; }}
 .hitl-hard .hitl-title {{ color:{RED}; }}
+.hitl-escalation    {{ display:inline-block; margin-left:8px; font-size:11px;
+                       font-weight:700; padding:2px 7px; border-radius:10px;
+                       background:#FFF3CD; color:#856404; border:1px solid #FFCA28; }}
 .hitl-body          {{ font-size:13px; color:#555; }}
 
 /* ── Running pulse animation ── */
@@ -621,7 +626,6 @@ def _run():
     from tools.supply_chain_tools import clear_cache
     from agents.state import initial_state as _make_state
     from graph import get_graph
-    from langgraph.types import Command
 
     clear_cache()
 
@@ -706,36 +710,14 @@ def _run():
         st.session_state["pipeline_running"] = False
         return
 
-    # ── Resolve checkpoint ────────────────────────────────────────────
+    # ── Resolve checkpoint — always paused at HITL gate ──────────────
     cp = graph.get_state(config)
     current = dict(cp.values) if cp else acc
-    tier = current.get("hitl_tier","AUTO")
-
-    # ── Phase 2: resume if AUTO ───────────────────────────────────────
-    if tier == "AUTO":
-        try:
-            for chunk in graph.stream(Command(resume={"approved":True,"comment":"AUTO"}), config):
-                for node_name, updates in chunk.items():
-                    if node_name.startswith("__"):
-                        continue
-                    if isinstance(updates, dict):
-                        current.update(updates)
-
-                    _mark_done(node_name)
-
-                    idx = agent_keys.index(node_name) if node_name in agent_keys else -1
-                    if 0 <= idx < len(agent_keys) - 1:
-                        _mark_active(agent_keys[idx + 1])
-        except Exception as exc:
-            st.error(f"Resume error: {exc}")
-
-        cp = graph.get_state(config)
-        current = dict(cp.values) if cp else current
 
     # ── Store results and navigate ────────────────────────────────────
-    st.session_state["run_state"]      = current
-    st.session_state["run_id"]         = current.get("run_id", run_id)
-    st.session_state["hitl_pending"]   = tier in ("SOFT","HARD")
+    st.session_state["run_state"]        = current
+    st.session_state["run_id"]           = current.get("run_id", run_id)
+    st.session_state["hitl_pending"]     = True   # All tiers require human confirmation
     st.session_state["pipeline_running"] = False
 
     import time; time.sleep(0.8)   # Let user read final state before navigating
@@ -766,65 +748,89 @@ def _decision():
 
 # ── HITL banner ───────────────────────────────────────────────────────────────
 def _hitl_banner(state: dict):
-    tier = state.get("hitl_tier", "AUTO")
-    if tier == "AUTO" or not st.session_state.get("hitl_pending"):
+    if not st.session_state.get("hitl_pending"):
         return
 
-    cls  = "hitl-soft" if tier == "SOFT" else "hitl-hard"
-    title = "Soft Approval Required" if tier == "SOFT" else "Hard Block — Explicit Approval Required"
-    body  = (
-        "This order will auto-approve within 12 hours if no action is taken."
-        if tier == "SOFT"
-        else "Pipeline is blocked. Explicit approval required to proceed."
+    tier       = state.get("hitl_tier", "AUTO")
+    escalation = state.get("escalation_tier") or ""
+    val        = state.get("po_recommendation", {}).get("estimated_value", 0)
+
+    _cfg = {
+        "AUTO": {
+            "cls": "hitl-auto", "col": GREEN,
+            "title": "Fast-track Approval Required",
+            "body": "Low-value order — fast-track review. No action within 24 hours will escalate to SOFT tier.",
+            "notes_required": False,
+        },
+        "SOFT": {
+            "cls": "hitl-soft", "col": AMBER,
+            "title": "Soft Approval Required",
+            "body": "12-hour review window. Notes are mandatory. No action will escalate to HARD tier — pipeline will NOT auto-proceed.",
+            "notes_required": True,
+        },
+        "HARD": {
+            "cls": "hitl-hard", "col": RED,
+            "title": "Hard Block — Explicit Approval Required",
+            "body": "Pipeline is blocked. No timeout. Explicit approval required. Notes are mandatory.",
+            "notes_required": True,
+        },
+    }
+    cfg = _cfg.get(tier, _cfg["HARD"])
+    esc_html = (
+        f'<span class="hitl-escalation">⬆ Escalated from {escalation}</span>'
+        if escalation else ""
     )
-    val = state.get("po_recommendation", {}).get("estimated_value", 0)
 
     st.markdown(f"""
-<div class="hitl-banner {cls}">
-  <div class="hitl-title">{title}</div>
-  <div class="hitl-body">{body} — PO value: <strong>${val:,.0f}</strong></div>
+<div class="hitl-banner {cfg['cls']}">
+  <div class="hitl-title">{cfg['title']}{esc_html}</div>
+  <div class="hitl-body">{cfg['body']} — PO value: <strong>${val:,.0f}</strong></div>
 </div>""", unsafe_allow_html=True)
+
+    notes_key = "hitl_notes_input"
+    placeholder = "Enter review notes (required)..." if cfg["notes_required"] else "Optional notes..."
+    notes = st.text_area("Notes", key=notes_key, placeholder=placeholder, label_visibility="collapsed")
+    can_act = not cfg["notes_required"] or bool(notes and notes.strip())
 
     bc1, bc2, bc3 = st.columns([1, 1, 5])
     with bc1:
-        if st.button("Approve", key="hitl_approve", type="primary", use_container_width=True):
-            _resume(approved=True)
+        if st.button("Approve", key="hitl_approve", type="primary",
+                     use_container_width=True, disabled=not can_act):
+            _resume(approved=True, notes=notes)
     with bc2:
-        if st.button("Reject", key="hitl_reject", type="primary", use_container_width=True):
-            _resume(approved=False)
+        if st.button("Reject", key="hitl_reject", type="primary",
+                     use_container_width=True, disabled=not can_act):
+            _resume(approved=False, notes=notes)
 
-    # CSS selectors can't reliably target these buttons across Streamlit DOM versions,
-    # so use JS via a same-origin iframe to apply colors by button text.
     import streamlit.components.v1 as components
-    components.html("""
+    approve_col = cfg["col"] if tier == "AUTO" else (GREEN if tier != "HARD" else GREEN)
+    components.html(f"""
 <script>
-(function() {
-    function paint() {
+(function() {{
+    function paint() {{
         var btns = window.parent.document.querySelectorAll(
-            '[data-testid="stButton"] button, [data-testid="baseButton-primary"], [data-testid="baseButton-secondary"]'
+            '[data-testid="stButton"] button, [data-testid="baseButton-primary"]'
         );
-        btns.forEach(function(btn) {
+        btns.forEach(function(btn) {{
             var txt = btn.innerText.trim();
-            if (txt === 'Approve') {
-                btn.style.setProperty('background', '#1E7C3E', 'important');
-                btn.style.setProperty('border-color', '#1E7C3E', 'important');
+            if (txt === 'Approve') {{
+                btn.style.setProperty('background', '{GREEN}', 'important');
+                btn.style.setProperty('border-color', '{GREEN}', 'important');
                 btn.style.setProperty('color', '#ffffff', 'important');
-            } else if (txt === 'Reject') {
-                btn.style.setProperty('background', '#C41230', 'important');
-                btn.style.setProperty('border-color', '#C41230', 'important');
+            }} else if (txt === 'Reject') {{
+                btn.style.setProperty('background', '{RED}', 'important');
+                btn.style.setProperty('border-color', '{RED}', 'important');
                 btn.style.setProperty('color', '#ffffff', 'important');
-            }
-        });
-    }
-    paint();
-    setTimeout(paint, 150);
-    setTimeout(paint, 400);
-})();
+            }}
+        }});
+    }}
+    paint(); setTimeout(paint, 150); setTimeout(paint, 400);
+}})();
 </script>
 """, height=0, scrolling=False)
 
 
-def _resume(approved: bool):
+def _resume(approved: bool, notes: str = ""):
     from graph import resume_pipeline
     tid = st.session_state.get("thread_id")
     if not tid:
@@ -832,7 +838,7 @@ def _resume(approved: bool):
         return
     with st.spinner("Processing..."):
         try:
-            new = resume_pipeline(tid, approved=approved, comment="UI decision")
+            new = resume_pipeline(tid, approved=approved, notes=notes)
             st.session_state["run_state"] = dict(new)
             st.session_state["hitl_pending"] = False
             st.rerun()

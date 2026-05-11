@@ -59,9 +59,11 @@ class SupplyChainState(TypedDict):
     po_recommendation: Dict[str, Any]  # serialized PurchaseOrderRecommendation
 
     # ── HITL Gate ─────────────────────────────────────────────────────────────
-    hitl_tier: str          # AUTO | SOFT | HARD
-    human_approved: bool
-    hitl_deadline: Optional[str]   # ISO-8601 timestamp for SOFT countdown
+    hitl_tier: str           # AUTO | SOFT | HARD
+    human_approved: bool     # True ONLY when a human explicitly clicks Approve
+    hitl_deadline: Optional[str]    # ISO-8601 deadline; AUTO=24hr, SOFT=12hr, HARD=None
+    escalation_tier: Optional[str]  # Set when deadline exceeded, e.g. "AUTO→SOFT"
+    hitl_notes: str          # Reviewer notes; mandatory for SOFT/HARD
 
     # ── Validation Judge (Agent 5) ────────────────────────────────────────────
     judge_score: float
@@ -117,6 +119,8 @@ def initial_state(
         hitl_tier="AUTO",
         human_approved=False,
         hitl_deadline=None,
+        escalation_tier=None,
+        hitl_notes="",
         judge_score=0.0,
         judge_verdict="",
         judge_flags=[],

@@ -39,7 +39,7 @@ The system continuously monitors SKU inventory levels across warehouses. When a 
 5. **Validate** the recommendation with an independent Claude judge (blind evaluation)
 6. **Summarise** the full decision trail in plain English for procurement teams
 
-Every decision routes through a tiered approval gate — orders under $10k auto-approve, larger orders require human sign-off before proceeding.
+Every decision routes through a tiered approval gate — agents prepare recommendations only and never execute purchases autonomously. Humans always confirm. The tiers control urgency and blocking behaviour, not whether a human is involved.
 
 ---
 
@@ -57,9 +57,10 @@ Every decision routes through a tiered approval gate — orders under $10k auto-
 │                                                      │            │
 │  ┌───────────────────────────────────────────────────▼─────────┐ │
 │  │                    TIERED HITL GATE                          │ │
-│  │  AUTO  (< $10k)      — log and proceed immediately           │ │
-│  │  SOFT  ($10k–$50k)   — auto-approves after 12hr timeout      │ │
-│  │  HARD  (> $50k)      — full block, explicit approval required │ │
+│  │  ALL tiers pause — agents NEVER execute purchases autonomously│ │
+│  │  AUTO  (< $10k)   — fast-track; escalates to SOFT after 24hr │ │
+│  │  SOFT  ($10k–$50k)— 12hr window + notes; escalates to HARD   │ │
+│  │  HARD  (> $50k)   — full block, no timeout, notes required   │ │
 │  └──────────────────────────────────┬────────────────────────────┘ │
 │                                      │                              │
 │  ┌───────────────────────────────────▼────────────────────────────┐ │
@@ -102,7 +103,7 @@ A two-page Streamlit app gives procurement teams full visibility into every run.
 - Single-row PO summary strip: order qty, value, supplier, required-by date, confidence tier, HITL tier
 - Pipeline panel with per-agent status (Risk Found / Warning / Complete) and verification pill counts
 - Four tabs: Verification Checks, Scenario Simulation chart, RAG Policy Sources, SOC2 Audit log
-- HITL banner with Approve (green) / Reject (red) buttons for SOFT and HARD tier runs
+- HITL banner with Approve / Reject buttons at **all** tiers (AUTO=green, SOFT=yellow, HARD=red); notes field mandatory for SOFT/HARD
 - Fixed bottom strip: cumulative cost, tokens, latency, and judge verdict
 
 ---
@@ -230,11 +231,15 @@ docker-compose up --build
 
 ## HITL Tiers
 
-| Tier | PO Value | Behaviour |
-|---|---|---|
-| AUTO | < $10,000 | Proceeds immediately, logged |
-| SOFT | $10k – $50k | Auto-approves after 12-hour timeout; overrideable |
-| HARD | > $50,000 | Pipeline blocked until explicit human approval |
+Agents **never** execute purchases autonomously. All tiers interrupt the pipeline and wait for explicit human confirmation. The tier controls urgency and blocking behaviour only.
+
+| Tier | PO Value | Urgency | Escalation | Notes |
+|---|---|---|---|---|
+| AUTO | < $10,000 | Fast-track | Escalates to SOFT after 24hr inaction | Optional |
+| SOFT | $10k – $50k | 12-hr review window | Escalates to HARD after 12hr inaction | **Mandatory** |
+| HARD | > $50,000 | Full block — no timeout | No escalation | **Mandatory** |
+
+`human_approved: true` is only written to the audit trail when a human explicitly clicks Approve.
 
 ---
 

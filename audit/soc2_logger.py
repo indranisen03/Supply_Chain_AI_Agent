@@ -74,8 +74,23 @@ def log_agent_complete(run_id: str, agent: str, output_summary: Any, cost_usd: f
     log_event(run_id, agent, "agent_complete", None, output_summary, cost_usd=cost_usd, tokens_used=tokens)
 
 
-def log_human_decision(run_id: str, hitl_tier: str, approved: bool, comment: str = "") -> None:
-    log_event(run_id, "HITL_GATE", "human_decision", hitl_tier, {"approved": approved, "comment": comment}, verification_passed=approved)
+def log_human_decision(
+    run_id: str,
+    hitl_tier: str,
+    approved: bool,
+    notes: str = "",
+    escalation_tier: Optional[str] = None,
+) -> None:
+    """Log a human HITL decision. human_confirmed is always explicit — never auto-set."""
+    log_event(
+        run_id,
+        "HITL_GATE",
+        "human_decision",
+        {"hitl_tier": hitl_tier, "escalation_tier": escalation_tier},
+        {"human_confirmed": approved, "notes": notes},
+        verification_passed=approved,
+        extra={"human_confirmed": approved, "escalation_tier": escalation_tier},
+    )
 
 
 def log_judge_score(run_id: str, score: float, verdict: str, flags: list, detail: dict) -> None:
