@@ -64,6 +64,11 @@ class SupplyChainState(TypedDict):
     hitl_deadline: Optional[str]    # ISO-8601 deadline; AUTO=24hr, SOFT=12hr, HARD=None
     escalation_tier: Optional[str]  # Set when deadline exceeded, e.g. "AUTO→SOFT"
     hitl_notes: str          # Reviewer notes; mandatory for SOFT/HARD
+    rejection_reason: Optional[str] # Populated when human_approved=False; logged to SOC2
+    approver_role: Optional[str]    # Role/key used to approve; set by API, stored for SOC2
+
+    # ── Pipeline Control ──────────────────────────────────────────────────────
+    pipeline_halted: bool    # True = stop all downstream processing (cost cap, RAG failure)
 
     # ── Validation Judge (Agent 5) ────────────────────────────────────────────
     judge_score: float
@@ -121,6 +126,9 @@ def initial_state(
         hitl_deadline=None,
         escalation_tier=None,
         hitl_notes="",
+        rejection_reason=None,
+        approver_role=None,
+        pipeline_halted=False,
         judge_score=0.0,
         judge_verdict="",
         judge_flags=[],

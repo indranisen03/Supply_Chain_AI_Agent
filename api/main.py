@@ -25,23 +25,15 @@ from config import API_HOST, API_PORT
 
 logger = logging.getLogger(__name__)
 
-# Approver roles keyed by API key (loaded from env; format: "KEY1:role1,KEY2:role2")
-_APPROVER_KEYS: Dict[str, str] = {}
-_raw_keys = os.getenv("APPROVER_KEYS", "")
-for pair in _raw_keys.split(","):
-    if ":" in pair:
-        k, role = pair.strip().split(":", 1)
-        _APPROVER_KEYS[k.strip()] = role.strip()
-
-
 def _verify_approver(x_approver_key: Optional[str] = Header(default=None)) -> str:
     """FastAPI dependency — validates X-Approver-Key and returns the approver role."""
-    if not _APPROVER_KEYS:
-        # No keys configured → open (development mode)
-        return "dev"
-    if not x_approver_key or x_approver_key not in _APPROVER_KEYS:
-        raise HTTPException(status_code=403, detail="Invalid or missing X-Approver-Key header")
-    return _APPROVER_KEYS[x_approver_key]
+    from config import resolve_approver_role
+    if not x_approver_key:
+        raise HTTPException(status_code=403, detail="X-Approver-Key header is required")
+    role = resolve_approver_role(x_approver_key)
+    if not role:
+        raise HTTPException(status_code=403, detail="Invalid X-Approver-Key")
+    return role
 
 
 app = FastAPI(
@@ -186,6 +178,15 @@ async def resume_run(
         raise HTTPException(status_code=404, detail="Run not found")
     if _RUNS[thread_id].get("status") != "awaiting_hitl":
         raise HTTPException(status_code=400, detail="Run is not awaiting HITL approval")
+
+    tier = _RUNS[thread_id].get("state", {}).get("hitl_tier", "AUTO")
+    from agents.policy import role_can_approve, minimum_role_for_tier, ROLE_DISPLAY_NAMES
+    if not role_can_approve(approver_role, tier):
+        display = ROLE_DISPLAY_NAMES.get(approver_role, approver_role)
+        raise HTTPException(
+            status_code=403,
+            detail=f"'{display}' cannot act on {tier}-tier orders. {minimum_role_for_tier(tier)} or above required.",
+        )
 
     if not req.approved and not req.rejection_reason and not req.comment:
         raise HTTPException(status_code=422, detail="rejection_reason or comment is required when rejecting")

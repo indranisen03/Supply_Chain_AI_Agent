@@ -7,7 +7,43 @@ can share the same tier logic without circular imports.
 
 from typing import Tuple
 
-# Per-agent retry caps (0 = no retries, escalate immediately)
+# ── Role definitions ──────────────────────────────────────────────────────────
+
+# Which HITL tiers each role is authorised to approve or reject.
+# Roles are additive upward — a Director can act on everything below HARD too.
+ROLE_TIER_PERMISSIONS: dict[str, list[str]] = {
+    "analyst":       [],                          # view-only
+    "coordinator":   ["AUTO"],
+    "sr_manager_l5": ["AUTO", "SOFT"],
+    "director_l6":   ["AUTO", "SOFT", "HARD"],
+}
+
+ROLE_DISPLAY_NAMES: dict[str, str] = {
+    "analyst":       "Analyst",
+    "coordinator":   "Coordinator",
+    "sr_manager_l5": "Sr. Manager (L5)",
+    "director_l6":   "Director (L6)",
+}
+
+# Minimum role required per tier (for error messages)
+_TIER_MIN_ROLE: dict[str, str] = {
+    "AUTO": "Coordinator",
+    "SOFT": "Sr. Manager (L5)",
+    "HARD": "Director (L6)",
+}
+
+
+def role_can_approve(role: str, tier: str) -> bool:
+    """Return True if the role is authorised to approve/reject this tier."""
+    return tier in ROLE_TIER_PERMISSIONS.get(role, [])
+
+
+def minimum_role_for_tier(tier: str) -> str:
+    """Human-readable minimum role name needed to act on a tier."""
+    return _TIER_MIN_ROLE.get(tier, "Director (L6)")
+
+
+# ── Per-agent retry caps (0 = no retries, escalate immediately) ──────────────
 AGENT_MAX_RETRIES: dict[str, int] = {
     "SENSING": 2,
     "HISTORICAL_TREND": 2,

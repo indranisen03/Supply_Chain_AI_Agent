@@ -27,6 +27,11 @@ data/faiss_index*/
 # Audit trail (generated at runtime)
 audit/audit_trail.jsonl
 
+# Generated RAG cache files
+data/bm25_summary.json
+memory/supplier_memory.json
+memory/hitl_memory.json
+
 # IDE
 .vscode/
 .idea/

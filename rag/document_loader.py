@@ -1,19 +1,21 @@
 """
-RAG document loader.
+RAG document loader — local-first strategy.
 
-Downloads 4 real Stellantis / FAR public PDFs (or HTML), chunks them with
-RecursiveCharacterTextSplitter (chunk_size=500, overlap=50), and returns a
-list of LangChain Document objects ready for FAISS + BM25 indexing.
+Priority order per document:
+  1. LOCAL  — PDF already exists at data/docs/{name}.pdf  (manually placed)
+  2. URL    — download from RAG_DOC_URLS with 3x exponential-backoff retry
+  3. STUB   — curated fallback text; prints a WARNING directing the user to
+              download the real file for production accuracy
 
-Falls back to curated stub text if a download fails, so the demo runs
-offline without crashing.
+Chunks each document with RecursiveCharacterTextSplitter (chunk_size=500,
+overlap=50) and prints a startup summary table showing source and chunk count.
 """
 
 import logging
 import re
 import time
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import requests
 from langchain_core.documents import Document
@@ -101,9 +103,67 @@ def _extract_text_from_html(content: bytes) -> str:
     return text.strip()
 
 
+def _load_one(doc_key: str, url: str, force_reload: bool) -> Tuple[str, str]:
+    """
+    Load text for a single document.
+    Returns (text, source) where source is "LOCAL", "URL", or "STUB".
+
+    Priority: LOCAL always beats URL/STUB, regardless of force_reload.
+    force_reload only controls whether to rebuild the BM25 index — it never
+    skips a locally placed file in favour of a network download.
+    """
+    save_path = DOCS_DIR / f"{doc_key}.pdf"
+
+    # ── 1. LOCAL: file already on disk (manually placed) ─────────────────────
+    if save_path.exists():
+        text = _extract_text_from_pdf(save_path)
+        if text and len(text.strip()) >= 100:
+            return text, "LOCAL"
+        # File exists but empty/corrupt — warn and fall through to URL
+        logger.warning("Local file %s yielded no text; falling back to URL.", save_path.name)
+
+    # ── 2. URL: attempt download (skipped for non-.pdf; use HTML extraction) ──
+    try:
+        logger.info("Downloading %s ...", url)
+        raw_bytes = _download_pdf(url, save_path)
+        text = (
+            _extract_text_from_pdf(save_path)
+            if url.endswith(".pdf")
+            else _extract_text_from_html(raw_bytes)
+        )
+        if text and len(text.strip()) >= 100:
+            return text, "URL"
+    except Exception as exc:
+        logger.debug("URL download failed for %s: %s", doc_key, exc)
+
+    # ── 3. STUB: last resort — warn loudly ───────────────────────────────────
+    print(
+        f"\nWARNING: Using stub for {doc_key}. "
+        f"Download manually to data/docs/{doc_key}.pdf for production accuracy."
+    )
+    return _STUBS.get(doc_key, f"[Stub] {doc_key}: No content available."), "STUB"
+
+
+def _print_summary(rows: List[Tuple[str, str, int]]) -> None:
+    """Print a startup summary table to stdout."""
+    source_icon = {"LOCAL": "📁 LOCAL", "URL": "🌐 URL  ", "STUB": "⚠️  STUB "}
+    col1 = max(len(r[0]) for r in rows)
+    header = f"{'Document':<{col1}}  {'Source':<10}  Chunks"
+    divider = "-" * len(header)
+    print(f"\n{'─' * len(header)}")
+    print("  RAG Document Sources")
+    print(f"{'─' * len(header)}")
+    print(f"  {header}")
+    print(f"  {divider}")
+    for doc_key, source, count in rows:
+        icon = source_icon.get(source, source)
+        print(f"  {doc_key:<{col1}}  {icon}  {count}")
+    print(f"{'─' * len(header)}\n")
+
+
 def load_documents(force_reload: bool = False) -> List[Document]:
     """
-    Load and chunk all 4 RAG documents.
+    Load and chunk all RAG documents using the local-first strategy.
     Returns LangChain Document objects with source metadata.
     """
     splitter = RecursiveCharacterTextSplitter(
@@ -111,32 +171,10 @@ def load_documents(force_reload: bool = False) -> List[Document]:
         chunk_overlap=RAG_CHUNK_OVERLAP,
     )
     all_docs: List[Document] = []
+    summary_rows: List[Tuple[str, str, int]] = []
 
     for doc_key, url in RAG_DOC_URLS.items():
-        save_path = DOCS_DIR / f"{doc_key}.pdf"
-        text = ""
-
-        # Try to use cached file first
-        if save_path.exists() and not force_reload:
-            logger.info("Loading cached: %s", save_path.name)
-            text = _extract_text_from_pdf(save_path)
-
-        # Try downloading
-        if not text:
-            try:
-                logger.info("Downloading %s ...", url)
-                raw_bytes = _download_pdf(url, save_path)
-                if url.endswith(".pdf"):
-                    text = _extract_text_from_pdf(save_path)
-                else:
-                    text = _extract_text_from_html(raw_bytes)
-            except Exception as exc:
-                logger.warning("Using stub for %s: %s", doc_key, exc)
-
-        # Fall back to stub
-        if not text or len(text.strip()) < 100:
-            text = _STUBS.get(doc_key, f"[Stub] {doc_key}: No content available.")
-            logger.info("Using stub content for: %s", doc_key)
+        text, source = _load_one(doc_key, url, force_reload)
 
         chunks = splitter.split_text(text)
         for i, chunk in enumerate(chunks):
@@ -148,10 +186,12 @@ def load_documents(force_reload: bool = False) -> List[Document]:
                         "url": url,
                         "chunk_index": i,
                         "total_chunks": len(chunks),
+                        "loaded_from": source,
                     },
                 )
             )
-        logger.info("Loaded %d chunks from %s", len(chunks), doc_key)
+        summary_rows.append((doc_key, source, len(chunks)))
 
+    _print_summary(summary_rows)
     logger.info("Total RAG documents: %d chunks", len(all_docs))
     return all_docs

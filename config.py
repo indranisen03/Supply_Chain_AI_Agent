@@ -94,5 +94,34 @@ RAG_DOC_URLS = {
     "far_part_12": "https://www.acquisition.gov/far/part-12",
 }
 
+# ── Approver keys ──────────────────────────────────────────────────────────────
+# Production: set APPROVER_KEYS="key1:role,key2:role" in .env
+# Demo fallback: these keys are active when APPROVER_KEYS is not set in env.
+# Replace all of these before any real deployment.
+_DEMO_APPROVER_KEYS: dict[str, str] = {
+    "ANALYST-001":  "analyst",
+    "COORD-001":    "coordinator",
+    "SRMGR-001":    "sr_manager_l5",
+    "DIR-001":      "director_l6",
+}
+
+
+def resolve_approver_role(key: str) -> str | None:
+    """
+    Resolve an approver key to a role name.
+    Returns None if the key is not recognised.
+    Production keys (APPROVER_KEYS env var) take precedence over demo defaults.
+    """
+    raw = os.getenv("APPROVER_KEYS", "")
+    if raw:
+        env_keys: dict[str, str] = {}
+        for pair in raw.split(","):
+            if ":" in pair:
+                k, role = pair.strip().split(":", 1)
+                env_keys[k.strip()] = role.strip()
+        return env_keys.get(key)
+    return _DEMO_APPROVER_KEYS.get(key)
+
+
 # ── Retry ──────────────────────────────────────────────────────────────────────
 MAX_AGENT_RETRIES = 2  # default fallback; per-agent limits live in agents/policy.py

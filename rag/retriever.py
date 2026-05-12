@@ -4,6 +4,7 @@ BM25 retriever for policy document search.
 Top-K: 3 chunks passed to LLM to stay within token budget.
 """
 
+import json
 import logging
 import pickle
 from pathlib import Path
@@ -13,16 +14,40 @@ from langchain_community.retrievers import BM25Retriever
 from langchain_core.documents import Document
 
 from config import DATA_DIR, RAG_TOP_K
-from rag.document_loader import load_documents
+from rag.document_loader import load_documents, _print_summary
 
 logger = logging.getLogger(__name__)
 
 _RETRIEVER_SINGLETON = None
 _BM25_PICKLE = DATA_DIR / "bm25_retriever.pkl"
+_SUMMARY_JSON = DATA_DIR / "bm25_summary.json"
 
 # Query-level caches to avoid repeated BM25 lookups within a single run
 _QUERY_CACHE: dict[str, str] = {}           # query → formatted string
 _DOCS_CACHE: dict[str, list] = {}           # query → List[Document]
+
+
+def _save_summary(docs: list) -> None:
+    """Persist per-doc source/chunk summary so it can be printed on cache hits."""
+    counts: dict[str, dict] = {}
+    for doc in docs:
+        key = doc.metadata.get("source", "unknown")
+        if key not in counts:
+            counts[key] = {"source": doc.metadata.get("loaded_from", "UNKNOWN"), "chunks": 0}
+        counts[key]["chunks"] += 1
+    rows = [(k, v["source"], v["chunks"]) for k, v in counts.items()]
+    _SUMMARY_JSON.write_text(json.dumps(rows))
+
+
+def _print_summary_from_cache() -> None:
+    """Print the saved summary table when loading from pickle cache."""
+    if not _SUMMARY_JSON.exists():
+        return
+    try:
+        rows = json.loads(_SUMMARY_JSON.read_text())
+        _print_summary(rows)
+    except Exception:
+        pass
 
 
 def get_retriever(force_rebuild: bool = False):
@@ -38,6 +63,7 @@ def get_retriever(force_rebuild: bool = False):
             r.k = RAG_TOP_K
             logger.info("Loaded BM25 retriever from cache.")
             _RETRIEVER_SINGLETON = r
+            _print_summary_from_cache()
             return _RETRIEVER_SINGLETON
         except Exception as exc:
             logger.warning("Cache load failed, rebuilding: %s", exc)
@@ -47,6 +73,7 @@ def get_retriever(force_rebuild: bool = False):
     r.k = RAG_TOP_K
     with open(_BM25_PICKLE, "wb") as f:
         pickle.dump(r, f)
+    _save_summary(docs)
     logger.info("BM25 retriever built and cached.")
     _RETRIEVER_SINGLETON = r
     return _RETRIEVER_SINGLETON

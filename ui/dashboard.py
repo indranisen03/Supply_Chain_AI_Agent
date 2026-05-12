@@ -755,10 +755,58 @@ def _decision():
     _bottom_strip(state)
 
 
+# ── Role login widget ─────────────────────────────────────────────────────────
+def _role_login_widget() -> str | None:
+    """
+    Renders a compact key-input / role-badge strip.
+    Returns the resolved role string if signed in, else None.
+    """
+    from config import resolve_approver_role
+    from agents.policy import ROLE_DISPLAY_NAMES
+
+    role = st.session_state.get("approver_role")
+
+    if role:
+        display = ROLE_DISPLAY_NAMES.get(role, role)
+        c1, c2 = st.columns([5, 1])
+        with c1:
+            st.markdown(
+                f'<div style="padding:6px 0;font-size:13px;color:{GRAY};">'
+                f'🔑 Signed in as <strong style="color:{DARK};">{display}</strong></div>',
+                unsafe_allow_html=True,
+            )
+        with c2:
+            if st.button("Sign out", key="role_signout", use_container_width=True):
+                del st.session_state["approver_role"]
+                st.rerun()
+        return role
+
+    c1, c2 = st.columns([5, 1])
+    with c1:
+        key_input = st.text_input(
+            "approver_key",
+            type="password",
+            placeholder="Enter your approver key...",
+            label_visibility="collapsed",
+            key="approver_key_input",
+        )
+    with c2:
+        if st.button("Sign in", key="role_signin", use_container_width=True):
+            resolved = resolve_approver_role(key_input.strip())
+            if resolved:
+                st.session_state["approver_role"] = resolved
+                st.rerun()
+            else:
+                st.error("Invalid key.")
+    return None
+
+
 # ── HITL banner ───────────────────────────────────────────────────────────────
 def _hitl_banner(state: dict):
     if not st.session_state.get("hitl_pending"):
         return
+
+    from agents.policy import role_can_approve, minimum_role_for_tier
 
     tier       = state.get("hitl_tier", "AUTO")
     escalation = state.get("escalation_tier") or ""
@@ -796,23 +844,39 @@ def _hitl_banner(state: dict):
   <div class="hitl-body">{cfg['body']} — PO value: <strong>${val:,.0f}</strong></div>
 </div>""", unsafe_allow_html=True)
 
+    # ── Role authentication strip ─────────────────────────────────────────────
+    role = _role_login_widget()
+    authorised = role is not None and role_can_approve(role, tier)
+
     notes_key = "hitl_notes_input"
     placeholder = "Enter review notes (required)..." if cfg["notes_required"] else "Optional notes..."
     notes = st.text_area("Notes", key=notes_key, placeholder=placeholder, label_visibility="collapsed")
-    can_act = not cfg["notes_required"] or bool(notes and notes.strip())
+    notes_ok  = not cfg["notes_required"] or bool(notes and notes.strip())
 
+    # ── Authorisation gate message ────────────────────────────────────────────
+    if role and not authorised:
+        min_role = minimum_role_for_tier(tier)
+        st.markdown(
+            f'<div style="padding:8px 12px;background:#FFF8E1;border-left:3px solid {AMBER};'
+            f'border-radius:4px;font-size:13px;color:#7A5800;margin:8px 0;">'
+            f'⚠️ <strong>{tier}</strong>-tier orders require <strong>{min_role}</strong> or above. '
+            f'Your role is view-only for this order.</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Action buttons ────────────────────────────────────────────────────────
+    btn_disabled = not (authorised and notes_ok)
     bc1, bc2, bc3 = st.columns([1, 1, 5])
     with bc1:
         if st.button("Approve", key="hitl_approve", type="primary",
-                     use_container_width=True, disabled=not can_act):
-            _resume(approved=True, notes=notes)
+                     use_container_width=True, disabled=btn_disabled):
+            _resume(approved=True, notes=notes, approver_role=role)
     with bc2:
         if st.button("Reject", key="hitl_reject", type="primary",
-                     use_container_width=True, disabled=not can_act):
-            _resume(approved=False, notes=notes, rejection_reason=notes)
+                     use_container_width=True, disabled=btn_disabled):
+            _resume(approved=False, notes=notes, rejection_reason=notes, approver_role=role)
 
     import streamlit.components.v1 as components
-    approve_col = cfg["col"] if tier == "AUTO" else (GREEN if tier != "HARD" else GREEN)
     components.html(f"""
 <script>
 (function() {{
@@ -839,7 +903,7 @@ def _hitl_banner(state: dict):
 """, height=0, scrolling=False)
 
 
-def _resume(approved: bool, notes: str = "", rejection_reason: str = ""):
+def _resume(approved: bool, notes: str = "", rejection_reason: str = "", approver_role: str = ""):
     from graph import resume_pipeline
     tid = st.session_state.get("thread_id")
     if not tid:
@@ -852,6 +916,7 @@ def _resume(approved: bool, notes: str = "", rejection_reason: str = ""):
                 approved=approved,
                 notes=notes,
                 rejection_reason=rejection_reason if not approved else "",
+                approver_role=approver_role or st.session_state.get("approver_role", ""),
             )
             st.session_state["run_state"] = dict(new)
             st.session_state["hitl_pending"] = False
