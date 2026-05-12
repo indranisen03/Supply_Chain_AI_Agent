@@ -37,7 +37,8 @@ _USE_CLAUDE_ONLY = not OPENAI_API_KEY or OPENAI_API_KEY in ("none", "sk-...")
 
 MODEL_MINI  = "claude-haiku-4-5-20251001" if _USE_CLAUDE_ONLY else "gpt-4o-mini"
 MODEL_LARGE = "claude-sonnet-4-6"         if _USE_CLAUDE_ONLY else "gpt-4o"
-MODEL_JUDGE = "claude-sonnet-4-5"   # always Claude — independent second opinion
+# Judge uses GPT-4o for true model diversity; falls back to Claude when no OpenAI key
+MODEL_JUDGE = "claude-sonnet-4-5" if _USE_CLAUDE_ONLY else "gpt-4o"
 
 # ── LangSmith ──────────────────────────────────────────────────────────────────
 LANGCHAIN_TRACING_V2 = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
@@ -94,4 +95,4 @@ RAG_DOC_URLS = {
 }
 
 # ── Retry ──────────────────────────────────────────────────────────────────────
-MAX_AGENT_RETRIES = 2
+MAX_AGENT_RETRIES = 2  # default fallback; per-agent limits live in agents/policy.py

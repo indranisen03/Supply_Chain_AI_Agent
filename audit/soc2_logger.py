@@ -80,6 +80,7 @@ def log_human_decision(
     approved: bool,
     notes: str = "",
     escalation_tier: Optional[str] = None,
+    rejection_reason: Optional[str] = None,
 ) -> None:
     """Log a human HITL decision. human_confirmed is always explicit — never auto-set."""
     log_event(
@@ -87,9 +88,13 @@ def log_human_decision(
         "HITL_GATE",
         "human_decision",
         {"hitl_tier": hitl_tier, "escalation_tier": escalation_tier},
-        {"human_confirmed": approved, "notes": notes},
+        {"human_confirmed": approved, "notes": notes, "rejection_reason": rejection_reason},
         verification_passed=approved,
-        extra={"human_confirmed": approved, "escalation_tier": escalation_tier},
+        extra={
+            "human_confirmed": approved,
+            "escalation_tier": escalation_tier,
+            "rejection_reason": rejection_reason,
+        },
     )
 
 

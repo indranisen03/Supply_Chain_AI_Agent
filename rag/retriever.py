@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 _RETRIEVER_SINGLETON = None
 _BM25_PICKLE = DATA_DIR / "bm25_retriever.pkl"
 
+# Query-level caches to avoid repeated BM25 lookups within a single run
+_QUERY_CACHE: dict[str, str] = {}           # query → formatted string
+_DOCS_CACHE: dict[str, list] = {}           # query → List[Document]
+
 
 def get_retriever(force_rebuild: bool = False):
     """Return singleton BM25 retriever, building from documents if needed."""
@@ -48,12 +52,31 @@ def get_retriever(force_rebuild: bool = False):
     return _RETRIEVER_SINGLETON
 
 
+def clear_query_cache() -> None:
+    """Clear the in-process query cache (called at pipeline start)."""
+    _QUERY_CACHE.clear()
+    _DOCS_CACHE.clear()
+
+
 def retrieve(query: str, retriever=None) -> str:
-    """Retrieve top-K chunks and return as formatted string."""
+    """Retrieve top-K chunks and return as formatted string (cached per query)."""
+    if query in _QUERY_CACHE:
+        return _QUERY_CACHE[query]
     r = retriever or get_retriever()
     docs = r.invoke(query)
+    _DOCS_CACHE[query] = docs
     parts = []
     for i, doc in enumerate(docs[:RAG_TOP_K]):
         src = doc.metadata.get("source", "unknown")
         parts.append(f"[Source {i+1}: {src}]\n{doc.page_content}")
-    return "\n\n".join(parts)
+    result = "\n\n".join(parts)
+    _QUERY_CACHE[query] = result
+    return result
+
+
+def retrieve_docs(query: str, retriever=None) -> list:
+    """Return raw Document list (cached per query)."""
+    if query in _DOCS_CACHE:
+        return _DOCS_CACHE[query]
+    retrieve(query, retriever)  # populates _DOCS_CACHE as side effect
+    return _DOCS_CACHE.get(query, [])

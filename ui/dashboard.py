@@ -35,11 +35,11 @@ BG     = "#F8F8F8"
 
 AGENTS = [
     ("sensing",          "Sensing"),
-    ("hist_trend", "Historical Trend"),
+    ("hist_trend",       "Historical Trend"),
     ("simulation",       "Simulation"),
     ("optimization",     "Optimization"),
-    ("hitl_gate",        "HITL Gate"),
     ("validation",       "Validation"),
+    ("hitl_gate",        "HITL Gate"),
     ("summarizer",       "Summarizer"),
 ]
 
@@ -735,6 +735,15 @@ def _decision():
             st.rerun()
         return
 
+    if state.get("pipeline_halted"):
+        reason = state.get("error", "Unknown reason")
+        st.markdown(f"""
+<div style="background:#FFF0F0;border-left:4px solid {RED};border-radius:6px;
+     padding:14px 18px;margin-bottom:18px;">
+  <strong style="color:{RED};">⛔ Pipeline Halted</strong>
+  <div style="margin-top:6px;font-size:13px;color:#333;">{reason}</div>
+</div>""", unsafe_allow_html=True)
+
     _hitl_banner(state)
 
     left, right = st.columns([1, 3], gap="large")
@@ -800,7 +809,7 @@ def _hitl_banner(state: dict):
     with bc2:
         if st.button("Reject", key="hitl_reject", type="primary",
                      use_container_width=True, disabled=not can_act):
-            _resume(approved=False, notes=notes)
+            _resume(approved=False, notes=notes, rejection_reason=notes)
 
     import streamlit.components.v1 as components
     approve_col = cfg["col"] if tier == "AUTO" else (GREEN if tier != "HARD" else GREEN)
@@ -830,7 +839,7 @@ def _hitl_banner(state: dict):
 """, height=0, scrolling=False)
 
 
-def _resume(approved: bool, notes: str = ""):
+def _resume(approved: bool, notes: str = "", rejection_reason: str = ""):
     from graph import resume_pipeline
     tid = st.session_state.get("thread_id")
     if not tid:
@@ -838,7 +847,12 @@ def _resume(approved: bool, notes: str = ""):
         return
     with st.spinner("Processing..."):
         try:
-            new = resume_pipeline(tid, approved=approved, notes=notes)
+            new = resume_pipeline(
+                tid,
+                approved=approved,
+                notes=notes,
+                rejection_reason=rejection_reason if not approved else "",
+            )
             st.session_state["run_state"] = dict(new)
             st.session_state["hitl_pending"] = False
             st.rerun()

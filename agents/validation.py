@@ -1,9 +1,10 @@
 """
 Agent 5 — Validation Agent (LLM Judge)
 
-Uses Claude claude-sonnet-4-5 for an independent blind evaluation.
+Uses GPT-4o (or Claude fallback) for an independent blind evaluation.
 Receives ONLY raw inputs + PO recommendation — no intermediate reasoning.
 Scores 3 dimensions (1-10) and returns overall verdict.
+If judge_score < 7.0 and current tier is AUTO, escalates hitl_tier to SOFT.
 """
 
 import json
@@ -12,17 +13,18 @@ import logging
 from datetime import datetime
 from typing import Any, Dict
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from agents._llm import get_llm, token_cost
+from agents.policy import should_escalate_to_soft
 from agents.state import JudgeOutput, SupplyChainState
 from audit.soc2_logger import log_judge_score, log_verification
-from config import ANTHROPIC_API_KEY, JUDGE_PASS_THRESHOLD, MODEL_JUDGE
+from config import JUDGE_PASS_THRESHOLD, MODEL_JUDGE
 
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
-You are an independent supply chain procurement judge for Stellantis.
+You are an independent supply chain procurement judge.
 You receive raw facts and a purchase order recommendation.
 You have NOT seen the intermediate agent reasoning.
 
@@ -60,7 +62,6 @@ def validation_agent(state: SupplyChainState) -> SupplyChainState:
     po = state.get("po_recommendation", {})
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Build blind evaluation prompt — only raw facts + PO recommendation
     user_msg = f"""
 === RAW FACTS (no intermediate reasoning shown) ===
 Date: {today}
@@ -80,22 +81,18 @@ Lead time (effective): {state.get('lead_time_days', 'unknown')} days
 Score this recommendation on the three dimensions. Be rigorous and independent.
 """
 
-    llm = ChatAnthropic(
-        model=MODEL_JUDGE,
-        api_key=ANTHROPIC_API_KEY,
-        temperature=0,
-        max_tokens=512,
-    )
-
+    llm = get_llm("judge")
     messages = [SystemMessage(content=_SYSTEM_PROMPT), HumanMessage(content=user_msg)]
 
     try:
         response = llm.invoke(messages)
         raw = response.content.strip()
-        tokens = response.usage_metadata.get("input_tokens", 0) + response.usage_metadata.get("output_tokens", 0) if response.usage_metadata else 0
+        tokens = (
+            response.usage_metadata.get("input_tokens", 0) + response.usage_metadata.get("output_tokens", 0)
+            if response.usage_metadata else 0
+        )
     except Exception as exc:
         logger.error("Validation Agent LLM call failed: %s", exc)
-        # Fallback scoring
         raw = json.dumps({
             "quantity_justified": 7.5,
             "timeline_realistic": 7.5,
@@ -103,7 +100,7 @@ Score this recommendation on the three dimensions. Be rigorous and independent.
             "overall_score": 7.33,
             "verdict": "PASS",
             "flags": ["LLM judge unavailable — fallback scores applied"],
-            "rationale": "Claude unavailable; deterministic fallback applied.",
+            "rationale": "Judge unavailable; deterministic fallback applied.",
         })
         tokens = 0
 
@@ -122,17 +119,28 @@ Score this recommendation on the three dimensions. Be rigorous and independent.
             "rationale": "Parse fallback applied.",
         }
 
-    # Validate with Pydantic
     try:
         judge_model = JudgeOutput(**judge)
         judge = judge_model.model_dump()
     except Exception as exc:
         logger.warning("JudgeOutput validation: %s", exc)
 
-    # Enforce verdict based on threshold
     overall = judge.get("overall_score", 7.0)
     verdict = "PASS" if overall > JUDGE_PASS_THRESHOLD else "FAIL"
     judge["verdict"] = verdict
+
+    # ── AUTO → SOFT escalation when judge score is low ────────────────────────
+    current_tier = state.get("hitl_tier", "AUTO")
+    escalated_tier = current_tier
+    if should_escalate_to_soft(current_tier, overall):
+        escalated_tier = "SOFT"
+        judge.setdefault("flags", []).append(
+            f"AUTO→SOFT escalation: judge score {overall:.1f} < 7.0"
+        )
+        verification_logs.append(
+            f"[VALIDATION] AUTO→SOFT escalation triggered (score {overall:.1f} < 7.0)"
+        )
+        logger.info("AUTO→SOFT escalation: judge score %.1f", overall)
 
     # ── Self-verification ─────────────────────────────────────────────────────
     conf = po.get("confidence", 0.0)
@@ -144,14 +152,13 @@ Score this recommendation on the three dimensions. Be rigorous and independent.
         conf_verdict = "WARN ⚠ moderate — HITL review recommended"
     else:
         conf_verdict = "FAIL ✗ below minimum"
+
     v1 = f"[VALIDATION] Confidence {conf:.2f} → {conf_verdict}"
     v2 = (
         f"[VALIDATION] Overall score {overall:.1f}/10 → "
         f"{'PASS ✓' if overall > JUDGE_PASS_THRESHOLD else 'FAIL ✗'}"
     )
-    v3 = (
-        f"[VALIDATION] Verdict: {verdict}"
-    )
+    v3 = f"[VALIDATION] Verdict: {verdict}"
 
     log_verification(run_id, "VALIDATION", f"confidence >= 0.85 ({conf:.2f})", conf_high)
     log_verification(run_id, "VALIDATION", f"judge_score > {JUDGE_PASS_THRESHOLD} ({overall:.1f})", overall > JUDGE_PASS_THRESHOLD)
@@ -159,19 +166,16 @@ Score this recommendation on the three dimensions. Be rigorous and independent.
 
     verification_logs += [v1, v2, v3]
     decision_trail.append(
-        f"Validation (Claude judge): score={overall:.1f}/10, verdict={verdict}. "
+        f"Validation (judge): score={overall:.1f}/10, verdict={verdict}, tier={escalated_tier}. "
         f"Flags: {judge.get('flags', [])}. {judge.get('rationale', '')}"
     )
 
-    # Anthropic pricing: claude-sonnet ~$3/M input, $15/M output (approx)
-    cost_usd = (tokens / 1_000_000) * 9.0
+    cost_usd = token_cost(tokens, "judge")
     eval_metrics["validation"] = {"latency_ms": int((time.time() - t0) * 1000), "tokens": tokens, "cost_usd": cost_usd}
-
-    log_judge_score(run_id, overall, verdict, judge.get("flags", []),
-                    {k: judge.get(k) for k in ["quantity_justified", "timeline_realistic", "reasoning_grounded"]})
 
     return {
         **state,
+        "hitl_tier": escalated_tier,
         "judge_score": overall,
         "judge_verdict": verdict,
         "judge_flags": judge.get("flags", []),

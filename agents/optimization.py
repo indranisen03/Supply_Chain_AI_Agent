@@ -17,6 +17,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from agents._llm import get_llm, token_cost
 
 from agents.state import PurchaseOrderRecommendation, SupplyChainState
+from agents.policy import determine_hitl_tier
 from audit.soc2_logger import log_agent_complete, log_verification
 from config import (
     HITL_AUTO_MAX_USD,
@@ -27,7 +28,8 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = """\
+# Cached system prompt text (used for Anthropic prompt caching)
+_SYSTEM_PROMPT_TEXT = """\
 You are the Optimization Agent for Stellantis supply chain procurement.
 You have access to Stellantis policy documents via RAG context.
 Your task: synthesize sensing, historical trend, and simulation data into a
@@ -43,16 +45,6 @@ Rules:
 Return ONLY a valid JSON object matching PurchaseOrderRecommendation schema.
 No extra text.
 """
-
-
-def _determine_hitl_tier(estimated_value: float) -> tuple[str, bool]:
-    """Return (tier, requires_human_approval). All tiers require human confirmation."""
-    if estimated_value < HITL_AUTO_MAX_USD:
-        return "AUTO", True
-    elif estimated_value <= HITL_SOFT_MAX_USD:
-        return "SOFT", True
-    else:
-        return "HARD", True
 
 
 def optimization_agent(state: SupplyChainState) -> SupplyChainState:
@@ -81,26 +73,55 @@ def optimization_agent(state: SupplyChainState) -> SupplyChainState:
     estimated_value = recommended_qty * unit_cost
     required_by = (datetime.now() + timedelta(days=lead_time_days + 7)).strftime("%Y-%m-%d")
 
-    hitl_tier, requires_approval = _determine_hitl_tier(estimated_value)
+    hitl_tier, requires_approval = determine_hitl_tier(estimated_value)
 
-    # ── RAG retrieval ─────────────────────────────────────────────────────────
+    # ── RAG retrieval (cached; halt if unavailable) ───────────────────────────
     rag_context = ""
     rag_sources = []
+    rag_ok = False
     try:
-        from rag.retriever import retrieve, get_retriever
+        from rag.retriever import retrieve_docs, retrieve, get_retriever
         retriever = get_retriever()
         query = f"Stellantis procurement approval threshold {supplier_id} emergency order quantity policy"
         rag_context = retrieve(query, retriever)
         rag_sources = list({
             doc.metadata.get("source", "unknown")
-            for doc in retriever.invoke(query)
+            for doc in retrieve_docs(query, retriever)
         })
+        rag_ok = bool(rag_context)
     except Exception as exc:
-        logger.warning("RAG retrieval failed, proceeding without: %s", exc)
-        rag_context = "RAG unavailable — decision based on tool data only."
+        logger.error("RAG retrieval failed — halting pipeline: %s", exc)
+        vlog = list(state.get("verification_logs", []))
+        vlog.append(f"[OPTIMIZATION] RAG failure — pipeline halted: {exc}")
+        return {
+            **state,
+            "pipeline_halted": True,
+            "error": f"RAG failure: {exc}",
+            "verification_logs": vlog,
+        }
 
-    # ── LLM reasoning ─────────────────────────────────────────────────────────
+    # ── Supplier context from procedural memory ───────────────────────────────
+    try:
+        from memory.supplier_memory import get_supplier_context
+        supplier_ctx = get_supplier_context(supplier_id)
+    except Exception:
+        supplier_ctx = {}
+
+    # ── LLM reasoning with Anthropic prompt caching ───────────────────────────
     llm = get_llm("large")
+    model_id = getattr(llm, "model_name", getattr(llm, "model", ""))
+    use_cache = "claude" in model_id.lower() or "anthropic" in str(type(llm)).lower()
+
+    # Build system message — cache the stable part (prompt + RAG context)
+    cached_system_content = f"{_SYSTEM_PROMPT_TEXT}\n\n=== RAG Policy Context ===\n{rag_context}"
+    if use_cache:
+        system_msg = SystemMessage(content=[{
+            "type": "text",
+            "text": cached_system_content,
+            "cache_control": {"type": "ephemeral"},
+        }])
+    else:
+        system_msg = SystemMessage(content=cached_system_content)
 
     user_msg = f"""
 === Supply Chain Context ===
@@ -115,6 +136,7 @@ Demand forecast (14d): {demand_forecast} units
 Disruption detected: {disruption_detected} — {disruption_details.get('details', 'N/A')}
 Historical trend: {json.dumps(historical_trend)}
 Simulation scenarios: {json.dumps(simulation_scenarios)}
+Supplier history: {json.dumps(supplier_ctx)}
 
 === HITL Thresholds ===
 AUTO: < ${HITL_AUTO_MAX_USD:,.0f}
@@ -122,15 +144,12 @@ SOFT: ${HITL_AUTO_MAX_USD:,.0f}–${HITL_SOFT_MAX_USD:,.0f}
 HARD: > ${HITL_SOFT_MAX_USD:,.0f}
 Current tier: {hitl_tier} (estimated_value = ${estimated_value:,.2f})
 
-=== RAG Policy Context ===
-{rag_context}
-
 Generate the PurchaseOrderRecommendation JSON.
 Fields: part_id, quantity, required_by, supplier_id, estimated_value,
         confidence, reasoning, requires_human_approval, hitl_tier,
         decision_window_days, rag_sources
 """
-    messages = [SystemMessage(content=_SYSTEM_PROMPT), HumanMessage(content=user_msg)]
+    messages = [system_msg, HumanMessage(content=user_msg)]
     response = llm.invoke(messages)
     raw = response.content.strip()
     tokens = response.usage_metadata.get("total_tokens", 0) if response.usage_metadata else 0

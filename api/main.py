@@ -12,10 +12,11 @@ Endpoints:
 
 import asyncio
 import logging
+import os
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -23,6 +24,25 @@ from pydantic import BaseModel, Field
 from config import API_HOST, API_PORT
 
 logger = logging.getLogger(__name__)
+
+# Approver roles keyed by API key (loaded from env; format: "KEY1:role1,KEY2:role2")
+_APPROVER_KEYS: Dict[str, str] = {}
+_raw_keys = os.getenv("APPROVER_KEYS", "")
+for pair in _raw_keys.split(","):
+    if ":" in pair:
+        k, role = pair.strip().split(":", 1)
+        _APPROVER_KEYS[k.strip()] = role.strip()
+
+
+def _verify_approver(x_approver_key: Optional[str] = Header(default=None)) -> str:
+    """FastAPI dependency — validates X-Approver-Key and returns the approver role."""
+    if not _APPROVER_KEYS:
+        # No keys configured → open (development mode)
+        return "dev"
+    if not x_approver_key or x_approver_key not in _APPROVER_KEYS:
+        raise HTTPException(status_code=403, detail="Invalid or missing X-Approver-Key header")
+    return _APPROVER_KEYS[x_approver_key]
+
 
 app = FastAPI(
     title="Stellantis Supply Chain AI",
@@ -56,6 +76,7 @@ class RunRequest(BaseModel):
 class ResumeRequest(BaseModel):
     approved: bool
     comment: str = ""
+    rejection_reason: str = ""
 
 
 class RunResponse(BaseModel):
@@ -154,17 +175,31 @@ async def get_status(thread_id: str):
 
 
 @app.post("/resume/{thread_id}", response_model=RunResponse)
-async def resume_run(thread_id: str, req: ResumeRequest, background_tasks: BackgroundTasks):
-    """Resume a SOFT/HARD HITL-paused pipeline with human decision."""
+async def resume_run(
+    thread_id: str,
+    req: ResumeRequest,
+    background_tasks: BackgroundTasks,
+    approver_role: str = Depends(_verify_approver),
+):
+    """Resume a HITL-paused pipeline with an authenticated human decision."""
     if thread_id not in _RUNS:
         raise HTTPException(status_code=404, detail="Run not found")
     if _RUNS[thread_id].get("status") != "awaiting_hitl":
         raise HTTPException(status_code=400, detail="Run is not awaiting HITL approval")
 
+    if not req.approved and not req.rejection_reason and not req.comment:
+        raise HTTPException(status_code=422, detail="rejection_reason or comment is required when rejecting")
+
     def resume_sync():
         try:
             from graph import resume_pipeline
-            state = resume_pipeline(thread_id, req.approved, req.comment)
+            state = resume_pipeline(
+                thread_id,
+                req.approved,
+                notes=req.comment,
+                rejection_reason=req.rejection_reason if not req.approved else "",
+                approver_role=approver_role,
+            )
             _RUNS[thread_id]["state"] = state
             _RUNS[thread_id]["status"] = "complete"
         except Exception as exc:
@@ -178,7 +213,7 @@ async def resume_run(thread_id: str, req: ResumeRequest, background_tasks: Backg
         thread_id=thread_id,
         status="resuming",
         hitl_tier=_RUNS[thread_id].get("state", {}).get("hitl_tier", "unknown"),
-        message=f"Pipeline resuming with decision: {'APPROVED' if req.approved else 'REJECTED'}",
+        message=f"Pipeline resuming with decision: {'APPROVED' if req.approved else 'REJECTED'} (role: {approver_role})",
     )
 
 
