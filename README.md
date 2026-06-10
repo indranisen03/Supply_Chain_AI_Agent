@@ -13,20 +13,19 @@ A multi-agent supply chain AI procurement recommendation system with tiered HITL
 
 ## Objective
 
-**Situation:**
-Automotive companies lose millions when parts are reordered too late, causing production delays with little visibility into how procurement decisions were made.
+Personal portfolio project demonstrating a production-grade multi-agent supply chain AI system for automotive procurement. Built as an independent working prototype prior to joining a supply chain AI implementation team.
 
-**Task:**
-Build a working AI system that monitors SKU inventory across warehouses, surfaces purchase order recommendations before risk materialises, and routes decisions through a tiered human-in-the-loop (HITL) approval gate with a full audit trail.
+**Situation:** Automotive manufacturers lose millions when parts are reordered too late, causing production line delays with little visibility into how procurement decisions were made.
 
-**Action:**
-Designed and built a 6-agent LangGraph pipeline with BM25 RAG grounded in real Stellantis procurement documents, a tiered HITL gate (AUTO / SOFT / HARD) with role-based approval authority, an independent LLM judge for blind validation, procedural memory for supplier and approval patterns, and a two-page Streamlit dashboard — all within a SOC2-compliant JSONL audit trail.
+**Task:** Build a working AI system that monitors SKU inventory across warehouses, surfaces purchase order recommendations before stockout risk materialises, and routes decisions through a tiered human-in-the-loop (HITL) approval gate with a full audit trail.
 
-**Result:**
-System runs end-to-end in under 60 seconds, generates RAG-grounded PO recommendations with confidence scores, triggers the correct HITL tier based on order value, enforces role-based approval authority, and produces a downloadable audit log per run.
+**Action:** Designed and built a 6-agent LangGraph pipeline with BM25 RAG grounded in automotive procurement policy documents, a tiered HITL gate (AUTO / SOFT / HARD) with role-based approval authority, an independent LLM judge for blind validation, procedural memory for supplier and approval patterns, and a two-page Streamlit dashboard — all within a SOC2-compliant JSONL audit trail.
 
-**Data:**
-Simulated using a Kaggle supply chain dataset (DataCo); RAG grounded in real Stellantis public procurement documents. Production deployment would swap the CSV for live SAP/ERP feeds.
+**Result:** System runs end-to-end in under 60 seconds, generates RAG-grounded PO recommendations with confidence scores, triggers the correct HITL tier based on order value, enforces role-based approval authority, and produces a downloadable audit log per run.
+
+**Data:** Simulated using a Kaggle supply chain dataset (DataCo); RAG grounded in publicly available automotive procurement policy documents. Production deployment would swap the CSV for live SAP/ERP feeds.
+
+> **Note:** This is an independent personal project built to demonstrate agentic AI system design. It is not affiliated with, endorsed by, or developed under any employer or client engagement.
 
 ---
 
@@ -406,4 +405,6 @@ Checks:
 
 ## License
 
-MIT License — personal portfolio project.
+All rights reserved. This is a personal portfolio project and is not licensed for reuse, redistribution, or commercial use without explicit written permission from the author.
+
+For inquiries: indrani.sen1@gmail.com
